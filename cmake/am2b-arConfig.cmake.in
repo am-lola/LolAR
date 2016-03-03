@@ -1,7 +1,0 @@
-@PACKAGE_INIT@
-
-set_and_check(@PROJECT_NAME@_INCLUDE_DIR "@PACKAGE_include_install_dir@")
-set_and_check(@PROJECT_NAME@_LIBRARY_DIR "@PACKAGE_lib_install_dir@")
-
-find_library(@PROJECT_NAME@_LIBRARY "arvisualizer" HINTS ${@PROJECT_NAME@_LIBRARY_DIR})
-

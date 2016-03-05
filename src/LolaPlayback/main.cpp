@@ -12,6 +12,8 @@
 
 #include <am2b-arvis/ARVisualizer.hpp>
 
+#include "StepPlannerLogReader.hpp"
+
 ar::ARVisualizer vizPoints;
 ar::ARVisualizer vizImages;
 ar::PointCloudData pointCloud(ar::PCL_PointXYZ);
@@ -144,47 +146,6 @@ void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
   }
 }
 
-std::vector< std::pair< int, std::vector< double > > > parse_step_log(std::string filename)
-{
-  std::ifstream infile(filename);
-  std::string line;
-  std::string splitLine[36];
-
-  std::vector< std::pair< int, std::vector< double > > > output;
-
-  while (std::getline(infile, line))
-  {
-    if ( line.find("#") == 0 )  // skip commented lines
-      continue;
-
-    std::stringstream ss(line);
-    int i = 0;
-    while ( ss.good() && i < 36 )
-    {
-      ss >> splitLine[i];
-      i++;
-    }
-
-    int obstacle_type = std::stoi(splitLine[21]);
-    std::vector<double> obstacle_params;
-    for (int i = 22; i <= 35; i++)
-    {
-      obstacle_params.push_back(std::stod(splitLine[i]));
-    }
-
-    std::vector<double> footstep_params;
-    for (int i = 8; i <=10; i++)
-    {
-      footstep_params.push_back(std::stod(splitLine[i]));
-    }
-
-    output.push_back(std::make_pair(7, footstep_params));
-    output.push_back(std::make_pair(obstacle_type, obstacle_params));
-  }
-
-  return output;
-}
-
 int main(int argc, char* argv[])
 {
   if (argc < 3)
@@ -213,57 +174,59 @@ int main(int argc, char* argv[])
 
   vizPoints.Start("PointCloud View");
   vizPoints.SetCameraPose(arcam_position, camera_forward, camera_up);
-  // vizPoints.SetCameraPose(camera_position, camera_forward, camera_up);
 
   // add an empty point cloud to visualizer, which we will upate each frame
   cloud_handle_pts = vizPoints.Add(pointCloud);
   cloud_handle_img = vizImages.Add(pointCloud);
 
-  auto log = parse_step_log(step_plan);
-  for (auto entry : log)
+  StepPlannerLogReader log(step_plan);
+
+  for (auto entry : log.Entries())
   {
-    switch (entry.first)
+    for (auto footsep : entry._footsteps)
     {
-      case 0: // Sphere
+      double quadNormal[3] = {0, 0, 1};
+      ar::Quad newQuad(
+        footsep._position[0], footsep._position[1], footsep._position[2],
+        quadNormal,
+        0.15, 0.15,
+        ar::Color(footsep._foot == Left ? 1 : 0, 1, 0, 0.3)
+      );
+      vizImages.Add(newQuad);
+      vizPoints.Add(newQuad);
+    }
+
+    for (auto obstacle : entry._obstacles)
+    {
+      switch (obstacle._type)
       {
-        ar::Sphere newSphere(
-          entry.second[5], entry.second[6], entry.second[7], // center
-          entry.second[2], // radius
-          ar::Color(0, 0.4, 0.8, 0.5)
-        );
-        vizImages.Add(newSphere);
-        vizPoints.Add(newSphere);
-        break;
-      }
-      case 1: // capsule
-      {
-        ar::Capsule newCapsule(
-          entry.second[5], entry.second[6], entry.second[7], // center1
-          entry.second[8], entry.second[9], entry.second[10], // center2
-          entry.second[2], // radius
-          ar::Color(0.6, 0.2, 0.6, 0.5)
-        );
-        vizImages.Add(newCapsule);
-        vizPoints.Add(newCapsule);
-        break;
-      }
-      case 7: // footstep
-      {
-        double quadNormal[3] = {0, 0, 1};
-        ar::Quad newQuad(
-          entry.second[0], entry.second[1], entry.second[2],
-          quadNormal,
-          0.15, 0.15,
-          ar::Color(entry.second[0] / 4.0, 1, 0, 0.3)
-        );
-        vizImages.Add(newQuad);
-        vizPoints.Add(newQuad);
-        break;
-      }
-      default:
-      {
-        std::cout << "Unknown obstacle type: " << entry.first << std::endl;
-        break;
+        case Sphere:
+        {
+          ar::Sphere newSphere(
+            obstacle._coords[0][0], obstacle._coords[0][1], obstacle._coords[0][2], // center
+            obstacle._radius, // radius
+            ar::Color(0, 0.4, 0.8, 0.5)
+          );
+          vizImages.Add(newSphere);
+          vizPoints.Add(newSphere);
+          break;
+        }
+        case Capsule:
+        {
+          ar::Capsule newCapsule(
+            obstacle._coords[0][0], obstacle._coords[0][1], obstacle._coords[0][2], // center1
+            obstacle._coords[1][0], obstacle._coords[1][1], obstacle._coords[1][2],// center2
+            obstacle._radius, // radius
+            ar::Color(0.6, 0.2, 0.6, 0.5)
+          );
+          vizImages.Add(newCapsule);
+          vizPoints.Add(newCapsule);
+          break;
+        }
+        default:
+        {
+          std::cout << "Unexpected obstacle type: " << obstacle._type << std::endl;
+        }
       }
     }
   }
@@ -275,7 +238,7 @@ int main(int argc, char* argv[])
   // Add a sphere to mark the external camera's position
   vizPoints.Add(ar::Sphere(arcam_position, 0.05, ar::Color(0,1,0)));
 
-    // wait for user to exit
+  // wait for user to exit
   std::cout << "Press enter when ready to exit..." << std::endl;
   std::cin.get();
   std::cout << "Shutting down..." << std::endl;
@@ -285,4 +248,3 @@ int main(int argc, char* argv[])
 
   return 0;
 }
-

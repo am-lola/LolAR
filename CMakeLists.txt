@@ -12,8 +12,11 @@ add_definitions(${PCL_DEFINITIONS})
 
 include_directories("src")
 
-file(GLOB lola_log_reader_src src/LolaLogReader/main.cpp)
-add_executable(lola_log_reader ${lola_log_reader_src})
-target_link_libraries(lola_log_reader ${PCL_LIBRARIES} ${OpenCV_LIBS} ${am2b-arvis_LIBRARY})
-set_target_properties(lola_log_reader PROPERTIES COMPILE_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+file(GLOB lola_playback_src
+    src/LolaPlayback/main.cpp
+    src/StepPlannerLogReader.cpp
+)
+add_executable(lola_playback ${lola_playback_src})
+target_link_libraries(lola_playback ${PCL_LIBRARIES} ${OpenCV_LIBS} ${am2b-arvis_LIBRARY})
+set_target_properties(lola_playback PROPERTIES COMPILE_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 

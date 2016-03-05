@@ -10,7 +10,7 @@
 #include <vector>
 #include <utility>
 
-#include <am2b-ar/ARVisualizer.hpp>
+#include <am2b-arvis/ARVisualizer.hpp>
 
 ar::ARVisualizer vizPoints;
 ar::ARVisualizer vizImages;

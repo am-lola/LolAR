@@ -5,6 +5,5 @@ Augmented-Reality Visualization for Lola
 # Dependencies
 
 * [ARVisualizer](https://gitlab.lrz.de/AMCode/ARVisualizer)
-* [OpenCV](http://opencv.org/)
+* [OpenCV 3+](http://opencv.org/) and the [contrib module](https://github.com/Itseez/opencv_contrib)
 * [PCL](http://pointclouds.org/)
-

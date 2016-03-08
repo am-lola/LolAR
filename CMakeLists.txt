@@ -20,3 +20,10 @@ add_executable(lola_playback ${lola_playback_src})
 target_link_libraries(lola_playback ${PCL_LIBRARIES} ${OpenCV_LIBS} ${am2b-arvis_LIBRARY})
 set_target_properties(lola_playback PROPERTIES COMPILE_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 
+
+file(GLOB aruco_tracker_test_src
+    src/MarkerTracker/main.cpp
+)
+add_executable(aruco_tracker ${aruco_tracker_test_src})
+target_link_libraries(aruco_tracker ${PCL_LIBRARIES} ${OpenCV_LIBS} ${am2b-arvis_LIBRARY})
+set_target_properties(aruco_tracker PROPERTIES COMPILE_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")

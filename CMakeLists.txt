@@ -12,6 +12,7 @@ add_definitions(${PCL_DEFINITIONS})
 
 include_directories("src")
 
+# Lola log player
 file(GLOB lola_playback_src
     src/LolaPlayback/main.cpp
     src/StepPlannerLogReader.cpp
@@ -20,10 +21,18 @@ add_executable(lola_playback ${lola_playback_src})
 target_link_libraries(lola_playback ${PCL_LIBRARIES} ${OpenCV_LIBS} ${am2b-arvis_LIBRARY})
 set_target_properties(lola_playback PROPERTIES COMPILE_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 
-
+# Aruco marker tracking test
 file(GLOB aruco_tracker_test_src
     src/MarkerTracker/main.cpp
 )
 add_executable(aruco_tracker ${aruco_tracker_test_src})
 target_link_libraries(aruco_tracker ${PCL_LIBRARIES} ${OpenCV_LIBS} ${am2b-arvis_LIBRARY})
 set_target_properties(aruco_tracker PROPERTIES COMPILE_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+
+# Generator for aruco marker boards
+file(GLOB aruco_board_generator_src
+    src/ArucoBoardGenerator/main.cpp
+)
+add_executable(aruco_generator ${aruco_board_generator_src})
+target_link_libraries(aruco_generator ${OpenCV_LIBS})
+set_target_properties(aruco_generator PROPERTIES COMPILE_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")

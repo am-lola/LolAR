@@ -27,32 +27,40 @@ ar::mesh_handle marker_origin_pts;
 ar::mesh_handle marker_board_pts;
 double board_center[3] = {0, 0, 0};
 double board_normal[3] = {0, 0, -1};
-double board_width = 0.3;
-double board_height = 0.35;
-
-ArucoTracker tracker;
+double board_width = 0.07;
+double board_height = 0.1;
 
 pcl::Grabber* interface;
 
-// camera intrinsic parameters for RGB sensor
-// double camera_matrix[3][3] = {
-//   5.2921508098293293e+02, 0.0, 3.2894272028759258e+02,
-//   0.0, 5.2556393630057437e+02, 2.6748068171871557e+02,
-//   0.0, 0.0, 1.0
-// };
-
-// default camera intrinsic parameters
+// camera intrinsic parameters for Kinect RGB sensor
 double camera_matrix[3][3] = {
-  5.25, 0.0, 3.0,
-  0.0, 5.25, 2.0,
+  5.2921508098293293e+02, 0.0, 3.2894272028759258e+02,
+  0.0, 5.2556393630057437e+02, 2.6748068171871557e+02,
   0.0, 0.0, 1.0
 };
 
+// default camera intrinsic parameters
+// double camera_matrix[3][3] = {
+//   5.25, 0.0, 3.0,
+//   0.0, 5.25, 2.0,
+//   0.0, 0.0, 1.0
+// };
+
+std::vector<double> camera_distortion = {
+  2.6451622333009589e-01,
+ -8.3990749424620825e-01,
+ -1.9922302173693159e-03,
+  1.4371995932897616e-03,
+  9.1192465078713847e-01
+};
+
+ArucoTracker tracker;
+
 // initial camera configuration
-double camera_up[3]       = { 0.0,   0.0, 1.0 }; // only correct when robot is not connected
-double camera_forward[3]  = {-1.0,  0.08,-0.3 };
-double camera_position[3] = { 0.0,  0.0,  0.0 };
-double arcam_position[3]  = { 6.3, -1.45, 1.8 };
+double camera_up[3]       = { 0.0, -1.0, 0.0 }; // only correct when robot is not connected
+double camera_forward[3]  = { 0.0,  0.0, 1.0 };
+double camera_position[3] = { 0.0,  0.0, 0.0 };
+
 
 
 /*
@@ -121,7 +129,7 @@ void image_callback (const boost::shared_ptr<openni_wrapper::Image>& image)
     cv::flip(bgrImage, flippedImage, 1);
 
     // incoming image is flipped on the X axis
-    Mat2Arr(flippedImage, img_data);
+    Mat2Arr(bgrImage, img_data);
 
     // send image data to visualizer
     // (img_data is safe to delete after this; visualizer makes its own copy )
@@ -136,7 +144,7 @@ void image_callback (const boost::shared_ptr<openni_wrapper::Image>& image)
       board_center[2] = pose[2];
 
       ar::Transform board_transform(board_center);
-      glm::vec3 euler_angles = glm::vec3(-tracker.LastRotation()[2], tracker.LastRotation()[0], tracker.LastRotation()[1]);
+      glm::vec3 euler_angles = glm::vec3(-tracker.LastRotation()[2], -tracker.LastRotation()[0], -tracker.LastRotation()[1]);
       glm::mat3 rotation = glm::orientate3(euler_angles);
       for (int i = 0; i < 3; i++)
       {
@@ -170,6 +178,11 @@ int main(int argc, char* argv[])
 {
   interface = new pcl::OpenNIGrabber("", pcl::OpenNIGrabber::OpenNI_QVGA_30Hz);
 
+  // initialize marker tracker
+  auto dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_6X6_250);
+  auto marker = cv::aruco::GridBoard::create(5,7, 0.014, 0.004, dictionary);
+  tracker = ArucoTracker(camera_matrix, camera_distortion, marker);
+
   // subscribe to grabber's pointcloud callback
   boost::function<void (const pcl::PointCloud<PointT>::ConstPtr&)> f_points = boost::bind(&cloud_cb, _1);
   interface->registerCallback(f_points);
@@ -178,10 +191,14 @@ int main(int argc, char* argv[])
   interface->registerCallback (f_rgb);
   interface->start();
 
+  // Start RGB data visualizer
   vizImages.Start("AR View");
   vizImages.SetCameraIntrinsics(camera_matrix);
+  vizImages.SetCameraPose(camera_position, camera_forward, camera_up);
 
+  // Start pointcloud data visualizer
   vizPoints.Start("PointCloud View");
+  vizPoints.SetCameraPose(camera_position, camera_forward, camera_up);
 
   // add an empty point cloud to visualizer, which we will upate each frame
   cloud_handle_pts = vizPoints.Add(pointCloud);

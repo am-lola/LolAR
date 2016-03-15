@@ -13,8 +13,8 @@ struct MarkerParams
   int markerBits         = 5;    // # of bits on each side of each marker (6x6, 5x5, etc)
   float markerSize       = 0.05; // Size, in meters, of each marker
   float markerSeparation = 0.01; // Distance, in meters, between adjacent markers
-  int imageWidth         = 1200;  // Width, in pixels, of output image
-  int imageHeight        = 1600;  // Height, in pixels, of output image
+  int imageWidth         = 1191; // Width, in pixels, of output image
+  int imageHeight        = 842;  // Height, in pixels, of output image (default size corresponds to A3 @ 72dpi)
   std::string filename;          // Output filename
 };
 
@@ -155,8 +155,8 @@ int main(int argc, char* argv[])
   }
 
   std::cout << "Genrating marker board..." << std::endl;
-  auto gridboard = cv::aruco::GridBoard::create(marker.markerRows,
-                                                marker.markerColumns,
+  auto gridboard = cv::aruco::GridBoard::create(marker.markerColumns,
+                                                marker.markerRows,
                                                 marker.markerSize,
                                                 marker.markerSeparation,
                                                 dictionary);

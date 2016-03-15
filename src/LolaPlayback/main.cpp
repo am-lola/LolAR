@@ -181,8 +181,12 @@ int main(int argc, char* argv[])
 
   StepPlannerLogReader log(step_plan);
 
+  std::cout << "Loaded " << log.Entries().size() << " log entries" << std::endl;
+
   for (auto entry : log.Entries())
   {
+    static double c = 0.0;
+    c += 1.0;
     for (auto footsep : entry._footsteps)
     {
       double quadNormal[3] = {0, 0, 1};
@@ -190,7 +194,7 @@ int main(int argc, char* argv[])
         footsep._position[0], footsep._position[1], footsep._position[2],
         quadNormal,
         0.15, 0.15,
-        ar::Color(footsep._foot == Left ? 1 : 0, 1, 0, 0.3)
+        ar::Color(c / (double)log.Entries().size(), footsep._foot == Left ? 1 : 0, 0.9, 0.5)
       );
       vizImages.Add(newQuad);
       vizPoints.Add(newQuad);

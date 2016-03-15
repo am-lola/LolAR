@@ -13,7 +13,10 @@
 
 #include <am2b-arvis/ARVisualizer.hpp>
 
+#include "utils.hpp"
 #include "ArucoTracker.hpp"
+
+typedef pcl::PointXYZ PointT;
 
 ar::ARVisualizer vizPoints;
 ar::ARVisualizer vizImages;
@@ -31,6 +34,7 @@ double board_width = 0.07;
 double board_height = 0.1;
 
 pcl::Grabber* interface;
+pcl::PointCloud<PointT>::ConstPtr lastCloud;
 
 // camera intrinsic parameters for Kinect RGB sensor
 double camera_matrix[3][3] = {
@@ -61,51 +65,6 @@ double camera_up[3]       = { 0.0, -1.0, 0.0 }; // only correct when robot is no
 double camera_forward[3]  = { 0.0,  0.0, 1.0 };
 double camera_position[3] = { 0.0,  0.0, 0.0 };
 
-
-
-/*
-  Copies the raw data from the given cv::Mat to dst_array
-  Based on the sample code from: docs.opencv.org/2.4/doc/tutorials/core/how_to_scan_images/how_to_scan_images.html
-
-  Returns True on success, False if the conversion could not be performed
-
-  NOTE: dst_array must already be allocated with enough space to store the image!
-*/
-bool Mat2Arr(cv::Mat inputImage, unsigned char* dst_array)
-{
-  if (inputImage.depth() != CV_8U)
-  {
-    std::cout << "ERROR: Expected input image type: CV_8U! Got cv type: " << inputImage.depth() << std::endl;
-    return false;
-  }
-
-  int channels = inputImage.channels();
-  int nRows = inputImage.rows;
-  int nCols = inputImage.cols * channels;
-
-  if (inputImage.isContinuous())
-  {
-    nCols *= nRows;
-    nRows = 1;
-  }
-
-  int p = 0;
-  for (int i = 0; i < nRows; i++)
-  {
-    uint8_t* rowPtr = inputImage.ptr<uchar>(i);
-    for (int j = 0; j < nCols; j += channels)
-    {
-      // note the order here, because the cv::Mat is BGR and we need RGB
-      dst_array[p + 0] = rowPtr[j + 2]; // R
-      dst_array[p + 1] = rowPtr[j + 1]; // G
-      dst_array[p + 2] = rowPtr[j + 0]; // B
-
-      p += 3;
-    }
-  }
-
-  return true;
-}
 
 /*
   This callback is called from PCL every time a new RGB image is available
@@ -157,11 +116,32 @@ void image_callback (const boost::shared_ptr<openni_wrapper::Image>& image)
       vizImages.Update(marker_board_img, board_transform, true);
       vizPoints.Update(marker_origin_pts, ar::Sphere(pose, 0.025, ar::Color(1, 1, 0)));
       vizPoints.Update(marker_board_pts, board_transform, true);
+
+      double dist = glm::length(glm::vec3(board_center[0], board_center[1], board_center[2]));
+      std::cout << "Distance: " << dist << std::endl;
+
+      if (lastCloud->height > 1)
+      {
+        double* image_location = tracker.LastImagePos();
+        if (lastCloud->height > image_location[1] && lastCloud->width > image_location[0])
+        {
+          auto point = lastCloud->at(glm::floor(image_location[0]), glm::floor(image_location[1]));
+          if (point.x + point.y + point.z != 0 &&
+              !std::isnan(point.x) && !std::isnan(point.y) && !std::isnan(point.z))
+          {
+            std::cout << "TRUE Distance: " << glm::length(glm::vec3(point.x, point.y, point.z)) << std::endl;
+            std::cout << "Delta: " << dist - glm::length(glm::vec3(point.x, point.y, point.z)) << std::endl;
+            double truePosition[3] = {point.x, point.y, point.z};
+            ar::Sphere truePos(truePosition, 0.02, ar::Color(1,0,0));
+            static ar::mesh_handle truePos_handle = vizPoints.Add(truePos);
+            vizPoints.Update(truePos_handle, truePos);
+          }
+        }
+      }
     }
   }
 }
 
-typedef pcl::PointXYZ PointT;
 void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
 {
   // only send data if the visualizer has started
@@ -172,16 +152,18 @@ void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
     pointCloud.numPoints = cloud->size();
     vizPoints.Update(cloud_handle_pts, pointCloud); // give the visualizer the new points
   }
+
+  lastCloud = cloud;
 }
 
 int main(int argc, char* argv[])
 {
-  interface = new pcl::OpenNIGrabber("", pcl::OpenNIGrabber::OpenNI_QVGA_30Hz);
+  interface = new pcl::OpenNIGrabber("", pcl::OpenNIGrabber::OpenNI_VGA_30Hz);
 
   // initialize marker tracker
   auto dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_5X5_1000);
-  // auto marker = cv::aruco::GridBoard::create(1,2, 0.20, 0.01, dictionary);
-  auto marker = cv::aruco::GridBoard::create(2,2, 0.145, 0.01, dictionary);
+  auto marker = cv::aruco::GridBoard::create(1,2, 0.195, 0.01, dictionary);
+  // auto marker = cv::aruco::GridBoard::create(2,2, 0.145, 0.01, dictionary);
   tracker = ArucoTracker(camera_matrix, camera_distortion, marker);
 
   // subscribe to grabber's pointcloud callback

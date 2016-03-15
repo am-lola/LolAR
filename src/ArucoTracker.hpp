@@ -109,6 +109,22 @@ public:
           _rotation[i] = rvec[i];
         }
 
+        // save image location of Marker
+        cv::Point2f centroid(0, 0);
+        int total = 0;
+        for (auto rect : corners)
+        {
+          for (auto point : rect)
+          {
+            centroid.x += point.x;
+            centroid.y += point.y;
+            total++;
+          }
+        }
+        centroid.x /= (float)total;
+        centroid.y /= (float)total;
+        _imageCenter[0] = centroid.x;
+        _imageCenter[1] = centroid.y;
 
         _hasPose = true;
       }
@@ -122,12 +138,15 @@ public:
 
   double* LastTranslation() { return _translation; }
   double* LastRotation() { return _rotation; }
+  double* LastImagePos() { return _imageCenter; }
+
 
 private:
   bool _hasPose = false;
 
   double _translation[3];
   double _rotation[3];
+  double _imageCenter[2];
 
   cv::Ptr<cv::aruco::Board> _markerBoard; // marker board to detect
   cv::Mat _cameraMatrix;           // camera intrinsic parameters

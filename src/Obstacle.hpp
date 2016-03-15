@@ -2,6 +2,7 @@
 #define _OBSTACLE_H_
 
 #include <vector>
+#include <string>
 
 enum ObstacleType
 {
@@ -12,9 +13,47 @@ enum ObstacleType
 struct Obstacle
 {
   ObstacleType _type;
-  unsigned long _id;
+  long _id;
   double _radius;
   std::vector<std::vector<double>> _coords;
+
+  operator std::string() const
+  {
+    std::string result;
+
+    result += "<" + std::to_string(_id) + ">: ";
+
+    switch (_type)
+    {
+      case Sphere:
+        result += "Sphere: ";
+        break;
+      case Capsule:
+        result += "Capsule: ";
+        break;
+      default:
+        result += "UNKNOWN: ";
+        break;
+    }
+
+    for (auto coord : _coords)
+    {
+      result += "(";
+      for (int i = 0; i < coord.size(); i++)
+      {
+        result += std::to_string(coord[i]);
+        if (i < coord.size() - 1)
+        {
+          result += ", ";
+        }
+      }
+      result += "), ";
+    }
+
+    result += "Radius: " + std::to_string(_radius);
+
+    return result;
+  }
 };
 
 #endif // _OBSTACLE_H_

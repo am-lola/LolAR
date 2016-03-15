@@ -2,6 +2,7 @@
 #define _FOOTSTEP_H_
 
 #include <vector>
+#include <string>
 
 enum Foot
 {
@@ -14,6 +15,24 @@ struct Footstep
   Foot _foot;
   std::vector<double> _position;
   double _phi;
+
+  operator std::string() const
+  {
+    std::string result;
+    result += _foot == Left ? "Left:  " : "Right: ";
+    result += "(";
+    for (size_t i = 0; i < _position.size(); i++)
+    {
+      result += std::to_string(_position[i]);
+
+      if (i < _position.size() - 1)
+      {
+        result += ", ";
+      }
+    }
+    result += "), " + std::to_string(_phi);
+    return result;
+  }
 };
 
 #endif // _FOOTSTEP_H_

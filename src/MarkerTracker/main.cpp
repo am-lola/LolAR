@@ -1,3 +1,8 @@
+#include <pcl/ModelCoefficients.h>
+#include <pcl/filters/extract_indices.h>
+#include <pcl/sample_consensus/method_types.h>
+#include <pcl/sample_consensus/model_types.h>
+#include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/common/transforms.h>
 #include <pcl/io/openni_grabber.h>
 #include <pcl/io/oni_grabber.h>
@@ -20,9 +25,11 @@ typedef pcl::PointXYZ PointT;
 
 ar::ARVisualizer vizPoints;
 ar::ARVisualizer vizImages;
-ar::PointCloudData pointCloud(ar::PCL_PointXYZ);
+ar::PointCloudData pointCloud(ar::PCL_PointXYZ, ar::Color(0.5,0.5,0.5,0.5));
+ar::PointCloudData markerPlane(ar::PCL_PointXYZ, ar::Color(0, 0, 1));
 ar::mesh_handle cloud_handle_pts;
 ar::mesh_handle cloud_handle_img;
+ar::mesh_handle cloud_srf;
 
 ar::mesh_handle marker_origin_img;
 ar::mesh_handle marker_board_img;
@@ -137,6 +144,59 @@ void image_callback (const boost::shared_ptr<openni_wrapper::Image>& image)
             vizPoints.Update(truePos_handle, truePos);
           }
         }
+
+        pcl::PointCloud<PointT>::Ptr subcloud(new pcl::PointCloud<PointT>);
+
+        // Fill in the cloud data
+        subcloud->width  = 65;
+        subcloud->height = 65;
+        subcloud->points.resize (subcloud->width * subcloud->height);
+
+        // Generate the data
+        for (size_t i = 0; i < subcloud->width; ++i)
+        {
+          for (size_t j = 0; j < subcloud->height; ++j)
+          {
+            subcloud->at(i,j) = lastCloud->at(image_location[0] + i-32, image_location[1] + j-32);
+          }
+        }
+
+        // find plane near detected Marker
+        pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
+        pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
+        pcl::SACSegmentation<PointT> seg;
+        seg.setOptimizeCoefficients (true);
+        seg.setModelType (pcl::SACMODEL_PLANE);
+        seg.setMethodType (pcl::SAC_RANSAC);
+        seg.setDistanceThreshold (0.01);
+
+        seg.setInputCloud (subcloud);
+        seg.segment (*inliers, *coefficients);
+
+        if (inliers->indices.size () == 0)
+        {
+          PCL_ERROR ("Could not estimate a planar model for the given dataset.");
+        }
+        else
+        {
+          // if we found a plane, extract the points which fit it and display them
+          pcl::PointCloud<PointT>::Ptr planecloud(new pcl::PointCloud<PointT>);
+          pcl::ExtractIndices<pcl::PointXYZ> extractor;
+          extractor.setInputCloud (subcloud);
+          extractor.setIndices (inliers);
+          extractor.setNegative (false);
+          extractor.filter (*planecloud);
+
+          const PointT* plane_data = &planecloud->points[0];
+          markerPlane.pointData = reinterpret_cast<const void*>(plane_data);
+          markerPlane.numPoints = planecloud->size();
+          vizPoints.Update(cloud_srf, markerPlane);
+
+          std::cerr << "Model coefficients: " << coefficients->values[0] << " "
+                                              << coefficients->values[1] << " "
+                                              << coefficients->values[2] << " "
+                                              << coefficients->values[3] << std::endl;
+        }
       }
     }
   }
@@ -151,6 +211,7 @@ void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
     pointCloud.pointData = reinterpret_cast<const void*>(data);
     pointCloud.numPoints = cloud->size();
     vizPoints.Update(cloud_handle_pts, pointCloud); // give the visualizer the new points
+
   }
 
   lastCloud = cloud;
@@ -158,6 +219,7 @@ void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
 
 int main(int argc, char* argv[])
 {
+  std::cout << "Opening sensor" << std::endl;
   interface = new pcl::OpenNIGrabber("", pcl::OpenNIGrabber::OpenNI_VGA_30Hz);
 
   // initialize marker tracker
@@ -186,6 +248,7 @@ int main(int argc, char* argv[])
   // add an empty point cloud to visualizer, which we will upate each frame
   cloud_handle_pts = vizPoints.Add(pointCloud);
   cloud_handle_img = vizImages.Add(pointCloud);
+  cloud_srf        = vizPoints.Add(markerPlane);
 
   marker_origin_img = vizImages.Add(ar::Sphere(0, 0, 0, 0.025, ar::Color(1, 1, 0)));
   marker_board_img  = vizImages.Add(ar::Quad(board_center, board_normal, board_width, board_height, ar::Color(0, 1, 0)));

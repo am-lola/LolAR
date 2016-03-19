@@ -26,7 +26,7 @@ typedef pcl::PointXYZ PointT;
 ar::ARVisualizer vizPoints;
 ar::ARVisualizer vizImages;
 ar::PointCloudData pointCloud(ar::PCL_PointXYZ, ar::Color(0.5,0.5,0.5,0.5));
-ar::PointCloudData markerPlane(ar::PCL_PointXYZ, ar::Color(0, 0, 1));
+ar::PointCloudData markerPlane(ar::PCL_PointXYZ, ar::Color(0, 1, 0));
 ar::mesh_handle cloud_handle_pts;
 ar::mesh_handle cloud_handle_img;
 ar::mesh_handle cloud_srf;
@@ -120,9 +120,9 @@ void image_callback (const boost::shared_ptr<openni_wrapper::Image>& image)
         }
       }
       vizImages.Update(marker_origin_img, ar::Sphere(pose, 0.025, ar::Color(1, 1, 0)));
-      vizImages.Update(marker_board_img, board_transform, true);
+      // vizImages.Update(marker_board_img, board_transform, true);
       vizPoints.Update(marker_origin_pts, ar::Sphere(pose, 0.025, ar::Color(1, 1, 0)));
-      vizPoints.Update(marker_board_pts, board_transform, true);
+      // vizPoints.Update(marker_board_pts, board_transform, true);
 
       double dist = glm::length(glm::vec3(board_center[0], board_center[1], board_center[2]));
       std::cout << "Distance: " << dist << std::endl;
@@ -139,6 +139,9 @@ void image_callback (const boost::shared_ptr<openni_wrapper::Image>& image)
             std::cout << "TRUE Distance: " << glm::length(glm::vec3(point.x, point.y, point.z)) << std::endl;
             std::cout << "Delta: " << dist - glm::length(glm::vec3(point.x, point.y, point.z)) << std::endl;
             double truePosition[3] = {point.x, point.y, point.z};
+            board_center[0] = truePosition[0];
+            board_center[1] = truePosition[1];
+            board_center[2] = truePosition[2];
             ar::Sphere truePos(truePosition, 0.02, ar::Color(1,0,0));
             static ar::mesh_handle truePos_handle = vizPoints.Add(truePos);
             vizPoints.Update(truePos_handle, truePos);
@@ -196,6 +199,12 @@ void image_callback (const boost::shared_ptr<openni_wrapper::Image>& image)
                                               << coefficients->values[1] << " "
                                               << coefficients->values[2] << " "
                                               << coefficients->values[3] << std::endl;
+          board_normal[0] = coefficients->values[0] / coefficients->values[3];
+          board_normal[1] = coefficients->values[1] / coefficients->values[3];
+          board_normal[2] = coefficients->values[2] / coefficients->values[3];
+          ar::Quad board = ar::Quad(board_center, board_normal, 0.4, 0.3, ar::Color(0.8,0.8,0));
+          vizPoints.Update(marker_board_pts, board);
+          vizImages.Update(marker_board_img, board);
         }
       }
     }

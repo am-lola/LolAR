@@ -20,6 +20,7 @@
 
 #include "utils.hpp"
 #include "ArucoTracker.hpp"
+#include "FloorDetector.hpp"
 
 typedef pcl::PointXYZ PointT;
 
@@ -27,9 +28,11 @@ ar::ARVisualizer vizPoints;
 ar::ARVisualizer vizImages;
 ar::PointCloudData pointCloud(ar::PCL_PointXYZ, ar::Color(0.5,0.5,0.5,0.5));
 ar::PointCloudData markerPlane(ar::PCL_PointXYZ, ar::Color(0, 1, 0));
+ar::PointCloudData floorPlane(ar::PCL_PointXYZ, ar::Color(1,1,0));
 ar::mesh_handle cloud_handle_pts;
 ar::mesh_handle cloud_handle_img;
 ar::mesh_handle cloud_srf;
+ar::mesh_handle cloud_floor;
 
 ar::mesh_handle marker_origin_img;
 ar::mesh_handle marker_board_img;
@@ -66,6 +69,7 @@ std::vector<double> camera_distortion = {
 };
 
 ArucoTracker tracker;
+FloorDetector<PointT> floorDetector(Eigen::Vector3f(0.0f,-1.0f, 0.0f), 0.2);
 
 // initial camera configuration
 double camera_up[3]       = { 0.0, -1.0, 0.0 }; // only correct when robot is not connected
@@ -151,8 +155,8 @@ void image_callback (const boost::shared_ptr<openni_wrapper::Image>& image)
         pcl::PointCloud<PointT>::Ptr subcloud(new pcl::PointCloud<PointT>);
 
         // Fill in the cloud data
-        subcloud->width  = 65;
-        subcloud->height = 65;
+        subcloud->width  = 129;
+        subcloud->height = 129;
         subcloud->points.resize (subcloud->width * subcloud->height);
 
         // Generate the data
@@ -160,7 +164,7 @@ void image_callback (const boost::shared_ptr<openni_wrapper::Image>& image)
         {
           for (size_t j = 0; j < subcloud->height; ++j)
           {
-            subcloud->at(i,j) = lastCloud->at(image_location[0] + i-32, image_location[1] + j-32);
+            subcloud->at(i,j) = lastCloud->at(image_location[0] + i-64, image_location[1] + j-64);
           }
         }
 
@@ -195,10 +199,6 @@ void image_callback (const boost::shared_ptr<openni_wrapper::Image>& image)
           markerPlane.numPoints = planecloud->size();
           vizPoints.Update(cloud_srf, markerPlane);
 
-          std::cerr << "Model coefficients: " << coefficients->values[0] << " "
-                                              << coefficients->values[1] << " "
-                                              << coefficients->values[2] << " "
-                                              << coefficients->values[3] << std::endl;
           board_normal[0] = coefficients->values[0] / coefficients->values[3];
           board_normal[1] = coefficients->values[1] / coefficients->values[3];
           board_normal[2] = coefficients->values[2] / coefficients->values[3];
@@ -221,6 +221,35 @@ void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
     pointCloud.numPoints = cloud->size();
     vizPoints.Update(cloud_handle_pts, pointCloud); // give the visualizer the new points
 
+    pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
+    if (floorDetector.FindFloor(cloud, inliers))
+    {
+      // if we found a plane, extract the points which fit it and display them
+      pcl::PointCloud<PointT>::Ptr planecloud(new pcl::PointCloud<PointT>);
+      pcl::ExtractIndices<pcl::PointXYZ> extractor;
+      extractor.setInputCloud (cloud);
+      extractor.setIndices (inliers);
+      extractor.setNegative (false);
+      extractor.filter (*planecloud);
+
+      // rotate floor to match true orientation
+      auto floor_normal = floorDetector.GetNormal();
+      auto true_normal  = Eigen::Vector3f(0.0f,-1.0f, 0.0f); // "up" in sensor-relative coordinates
+      Eigen::Affine3f rotation(Eigen::Quaternionf::FromTwoVectors(floor_normal, true_normal));
+      pcl::transformPointCloud(*planecloud, *planecloud, rotation);
+
+      // Estimate centroid of the floor
+      Eigen::Vector4f centroid;
+      pcl::compute3DCentroid (*planecloud, centroid);
+
+      // Height (in sensor-relative coordinates) is on the Y axis
+      std::cout << "Sensor height: ~" << centroid[1] << " meters" << std::endl;
+
+      const PointT* plane_data = &planecloud->points[0];
+      floorPlane.pointData = reinterpret_cast<const void*>(plane_data);
+      floorPlane.numPoints = planecloud->size();
+      vizPoints.Update(cloud_floor, floorPlane);
+    }
   }
 
   lastCloud = cloud;
@@ -258,6 +287,7 @@ int main(int argc, char* argv[])
   cloud_handle_pts = vizPoints.Add(pointCloud);
   cloud_handle_img = vizImages.Add(pointCloud);
   cloud_srf        = vizPoints.Add(markerPlane);
+  cloud_floor      = vizPoints.Add(floorPlane);
 
   marker_origin_img = vizImages.Add(ar::Sphere(0, 0, 0, 0.025, ar::Color(1, 1, 0)));
   marker_board_img  = vizImages.Add(ar::Quad(board_center, board_normal, board_width, board_height, ar::Color(0, 1, 0)));

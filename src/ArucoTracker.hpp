@@ -4,6 +4,8 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/aruco.hpp>
 
+#include "CameraIntrinsics.hpp"
+
 class ArucoTracker
 {
 public:
@@ -29,46 +31,46 @@ public:
     _markerBoard = cv::aruco::GridBoard::create(1, 2, 0.05, 0.012, dictionary);
   }
 
-  ArucoTracker(double camera[3][3], std::vector<double> distortion)
+  ArucoTracker(CameraIntrinsics camera_params)
   {
-    _distortionCoefficients = cv::Mat(1, distortion.size(), CV_32FC1);
+    _distortionCoefficients = cv::Mat(1, camera_params.distortion.size(), CV_32FC1);
     _cameraMatrix = cv::Mat(3, 3, CV_32FC1, 0.0);
 
     for (size_t i = 0; i < 3; i++)
     {
       for (size_t j = 0; j < 3; j++)
       {
-        _cameraMatrix.at<float>(i, j) = camera[i][j];
+        _cameraMatrix.at<float>(i, j) = camera_params.intrinsics[i][j];
       }
     }
 
-    for (size_t i = 0; i < distortion.size(); i++)
+    for (size_t i = 0; i < camera_params.distortion.size(); i++)
     {
-      _distortionCoefficients.at<float>(0, i) = distortion.at(i);
+      _distortionCoefficients.at<float>(0, i) = camera_params.distortion.at(i);
     }
 
     auto dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_5X5_1000);
     _markerBoard = cv::aruco::GridBoard::create(1, 2, 0.05, 0.012, dictionary);
   }
 
-  ArucoTracker(double camera[3][3], std::vector<double> distortion, cv::Ptr<cv::aruco::Board> markerBoard)
+  ArucoTracker(CameraIntrinsics camera_params, cv::Ptr<cv::aruco::Board> markerBoard)
   {
     _markerBoard = markerBoard;
 
-    _distortionCoefficients = cv::Mat(1, distortion.size(), CV_32FC1);
+    _distortionCoefficients = cv::Mat(1, camera_params.distortion.size(), CV_32FC1);
     _cameraMatrix = cv::Mat(3, 3, CV_32FC1, 0.0);
 
     for (size_t i = 0; i < 3; i++)
     {
       for (size_t j = 0; j < 3; j++)
       {
-        _cameraMatrix.at<float>(i, j) = camera[i][j];
+        _cameraMatrix.at<float>(i, j) = camera_params.intrinsics[i][j];
       }
     }
 
-    for (size_t i = 0; i < distortion.size(); i++)
+    for (size_t i = 0; i < camera_params.distortion.size(); i++)
     {
-      _distortionCoefficients.at<float>(0, i) = distortion.at(i);
+      _distortionCoefficients.at<float>(0, i) = camera_params.distortion.at(i);
     }
   }
 

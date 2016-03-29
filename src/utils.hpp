@@ -3,6 +3,12 @@
 
 #include <opencv2/opencv.hpp>
 
+// Converts degrees to radians.
+#define RADIANS(angleDegrees) (angleDegrees * M_PI / 180.0)
+
+// Converts radians to degrees.
+#define DEGREES(angleRadians) (angleRadians * 180.0 / M_PI)
+
 /*
   Copies the raw data from the given cv::Mat to dst_array
   Based on the sample code from: docs.opencv.org/2.4/doc/tutorials/core/how_to_scan_images/how_to_scan_images.html

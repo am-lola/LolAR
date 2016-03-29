@@ -61,10 +61,18 @@ public:
       extractor.setNegative(false);
       extractor.filter(*floorcloud);
 
-      // rotate floor to match true orientation
+      // find correct orientation of the floor & transformation from actual
       auto floor_normal = _floorDetector.GetNormal();
       auto true_normal  = _floorDetector.GetExpectedNormal();
-      Eigen::Affine3f rotation(Eigen::Quaternionf::FromTwoVectors(floor_normal, true_normal));
+      auto rot_quat = Eigen::Quaternionf::FromTwoVectors(floor_normal, true_normal);
+
+      // get pitch and roll values from rotation
+      auto rot_euler = rot_quat.toRotationMatrix().eulerAngles(0, 1, 2);
+      _cameraRotation[0] = M_PI - rot_euler[0]; // flipped because camera will have the opposite rotation
+      _cameraRotation[2] = M_PI - rot_euler[2];
+
+      // transform floor to match its real-world orientation
+      Eigen::Affine3f rotation(rot_quat);
       pcl::transformPointCloud(*floorcloud, *floorcloud, rotation);
 
       // Estimate centroid of the floor
@@ -83,6 +91,7 @@ public:
     }
 
     std::cout << "New Camera Position: [" << _cameraPosition[0] << ", " << _cameraPosition[1] << ", " << _cameraPosition[2] << "]" << std::endl;
+    std::cout << "New Camera Orientation: [" << DEGREES(_cameraRotation[0]) << ", " << DEGREES(_cameraRotation[1]) << ", " << DEGREES(_cameraRotation[2]) << "]" << std::endl;
   }
 
   void Update(const boost::shared_ptr<openni_wrapper::Image>& image)
@@ -109,6 +118,7 @@ public:
       }
 
       // if we have good pointcloud data, estimate marker's true position from there
+      /// TODO: This should probably be in ArucoTracker instead of here
       if (_lastCloud->height > 1)
       {
         double* image_location = _markerTracker.LastImagePos();
@@ -176,6 +186,15 @@ public:
               static ar::mesh_handle board_handle = _visualizer.Add(board);
               board = ar::Quad(truePosition, board_normal, 0.4, 0.3, ar::Color(0.8,0.8,0));
               _visualizer.Update(board_handle, board);
+
+              // find camera's yaw rotation, relative to marker
+              Eigen::Vector3f board_normal_adjusted = Eigen::Vector3f(board_normal[0], 0.0f, board_normal[2]).normalized();
+              _cameraRotation[1] = M_PI - acos(board_normal_adjusted.dot(Eigen::Vector3f(0.0f, 0.0f, 1.0f)));
+              // ensure sign of the rotation is correct -- assumes rotation is about the -Y axis, with +Z aligning to a rotation of 0 degrees
+              if (Eigen::Vector3f(0.0f, -1.0f, 0.0f).dot(board_normal_adjusted.cross(Eigen::Vector3f(0.0f, 0.0f, 1.0f))) < 0)
+              {
+                _cameraRotation[1] = -_cameraRotation[1];
+              }
             }
           }
         }

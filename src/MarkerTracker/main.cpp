@@ -26,12 +26,7 @@
 
 typedef pcl::PointXYZ PointT;
 
-ar::ARVisualizer vizPoints;
 ar::ARVisualizer vizImages;
-ar::PointCloudData pointCloud(ar::PCL_PointXYZ, ar::Color(0.5,0.5,0.5,0.5));
-
-ar::mesh_handle cloud_handle_pts;
-ar::mesh_handle cloud_handle_img;
 
 pcl::Grabber* interface;
 
@@ -64,6 +59,8 @@ double camera_position[3] = { 0.0,  0.0, 0.0 };
 */
 void image_callback (const boost::shared_ptr<openni_wrapper::Image>& image)
 {
+  cameraPoseEstimator->Update(image);
+
   // only send data if the visualizer has started
   if (vizImages.IsRunning())
   {
@@ -85,23 +82,15 @@ void image_callback (const boost::shared_ptr<openni_wrapper::Image>& image)
 
     // send image data to visualizer
     vizImages.NotifyNewVideoFrame(image->getWidth(), image->getHeight(), img_data);
-
-    cameraPoseEstimator->Update(image);
   }
 }
 
+/*
+  This callback is called from PCL every time a new point cloud is available
+*/
 void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
 {
-  // only send data if the visualizer has started
-  if (vizPoints.IsRunning())
-  {
-    const PointT* data = &cloud->points[0];
-    pointCloud.pointData = reinterpret_cast<const void*>(data);
-    pointCloud.numPoints = cloud->size();
-    vizPoints.Update(cloud_handle_pts, pointCloud); // give the visualizer the new points
-
     cameraPoseEstimator->Update(cloud);
-  }
 }
 
 int main(int argc, char* argv[])
@@ -122,6 +111,7 @@ int main(int argc, char* argv[])
   // subscribe to grabber's pointcloud callback
   boost::function<void (const pcl::PointCloud<PointT>::ConstPtr&)> f_points = boost::bind(&cloud_cb, _1);
   interface->registerCallback(f_points);
+
   // subscribe to grabber's image callback so we get RGB data
   boost::function<void (const boost::shared_ptr<openni_wrapper::Image>&)> f_rgb = boost::bind (&image_callback, _1);
   interface->registerCallback (f_rgb);
@@ -132,21 +122,13 @@ int main(int argc, char* argv[])
   vizImages.SetCameraIntrinsics(camera_params.intrinsics);
   vizImages.SetCameraPose(camera_position, camera_forward, camera_up);
 
-  // Start pointcloud data visualizer
-  vizPoints.Start("PointCloud View");
-  vizPoints.SetCameraPose(camera_position, camera_forward, camera_up);
-
-  // add an empty point cloud to visualizer, which we will upate each frame
-  cloud_handle_pts = vizPoints.Add(pointCloud);
-  cloud_handle_img = vizImages.Add(pointCloud);
-
   // wait for user to exit
   std::cout << "Press enter when ready to exit..." << std::endl;
   std::cin.get();
   std::cout << "Shutting down..." << std::endl;
 
-  vizPoints.Stop();
   vizImages.Stop();
+  interface->stop();
 
   return 0;
 }

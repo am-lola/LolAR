@@ -187,7 +187,11 @@ public:
               board = ar::Quad(truePosition, board_normal, 0.4, 0.3, ar::Color(0.8,0.8,0));
               _visualizer.Update(board_handle, board);
 
-              // find camera's yaw rotation, relative to marker
+              // find camera's position, relative to marker     /// TODO: add offset from marker to Lola's world origin
+              _cameraPosition[0] = -truePosition[2]; // Z in sensor-coords is X in world coords
+              _cameraPosition[1] = -truePosition[0]; // X in sensor-coords is Y in world coords
+
+              // find camera's yaw rotation, relative to marker /// TODO: add offset from marker to Lola's world origin
               Eigen::Vector3f board_normal_adjusted = Eigen::Vector3f(board_normal[0], 0.0f, board_normal[2]).normalized();
               _cameraRotation[1] = M_PI - acos(board_normal_adjusted.dot(Eigen::Vector3f(0.0f, 0.0f, 1.0f)));
               // ensure sign of the rotation is correct -- assumes rotation is about the -Y axis, with +Z aligning to a rotation of 0 degrees

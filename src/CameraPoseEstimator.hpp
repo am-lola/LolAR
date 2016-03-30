@@ -182,10 +182,23 @@ public:
                     coefficients->values[1] / coefficients->values[3],
                     coefficients->values[2] / coefficients->values[3]
               };
+
+              // visualize marker board
               static ar::Quad board = ar::Quad(truePosition, board_normal, 0.4, 0.3, ar::Color(0.8,0.8,0));
               static ar::mesh_handle board_handle = _visualizer.Add(board);
-              board = ar::Quad(truePosition, board_normal, 0.4, 0.3, ar::Color(0.8,0.8,0));
-              _visualizer.Update(board_handle, board);
+              static ar::Transform boardTransform = ar::Transform();
+              boardTransform.translation[0] = truePosition[0];
+              boardTransform.translation[1] = truePosition[1];
+              boardTransform.translation[2] = truePosition[2];
+              auto boardRotation = Eigen::Quaternionf::FromTwoVectors(Eigen::Vector3f(0, 0, 1), Eigen::Vector3f(board_normal[0], board_normal[1], board_normal[2])).toRotationMatrix();
+              for (size_t i = 0; i < 3; i++)
+              {
+                for (size_t j = 0; j < 3; j++)
+                {
+                  boardTransform.rotation[i][j] = boardRotation(i, j);
+                }
+              }
+              _visualizer.Update(board_handle, boardTransform, true);
 
               // find camera's position, relative to marker     /// TODO: add offset from marker to Lola's world origin
               _cameraPosition[0] = -truePosition[2]; // Z in sensor-coords is X in world coords

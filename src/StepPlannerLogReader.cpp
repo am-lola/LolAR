@@ -65,14 +65,19 @@ void StepPlannerLogReader::ParseStepLog(std::string filename)
       current_entry._stamp = std::stoul(splitLine[_stamp_idx]);
     }
 
-    Footstep newFootstep;
-    newFootstep._foot = static_cast<Foot>(std::stoi(splitLine[_footstep_foot_idx]));
-    newFootstep._phi  = std::stod(splitLine[_footstep_rotation_idx]);
-    for (int i = _footstep_coord_idx; i < _footstep_coord_idx + _footstep_coord_size; i++)
+    // stop parsing footsteps if we already have the max. for this frame
+    // (any additional log entries will contain invalid footstep data)
+    if (current_entry._footsteps.size() < _max_footsteps)
     {
-      newFootstep._position.push_back(std::stod(splitLine[i]));
+      Footstep newFootstep;
+      newFootstep._foot = static_cast<Foot>(std::stoi(splitLine[_footstep_foot_idx]));
+      newFootstep._phi  = std::stod(splitLine[_footstep_rotation_idx]);
+      for (int i = _footstep_coord_idx; i < _footstep_coord_idx + _footstep_coord_size; i++)
+      {
+        newFootstep._position.push_back(std::stod(splitLine[i]));
+      }
+      current_entry._footsteps.push_back(newFootstep);
     }
-    current_entry._footsteps.push_back(newFootstep);
 
     // obstacle data
     Obstacle newObstacle;

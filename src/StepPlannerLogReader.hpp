@@ -21,6 +21,7 @@ private:
 
   // # of entries in each log line
   const size_t _log_width             = 40;
+  const size_t _max_footsteps         =  8; // max number of footsteps per frame (any others are discarded)
 
   // offsets into each log line of data we need
   const size_t _stamp_idx             =  0;

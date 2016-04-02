@@ -13,6 +13,8 @@ public:
 
   std::vector<StepPlannerLogEntry> Entries() { return _log; }
 
+  StepPlannerLogEntry Entry(unsigned int idx) { return _log.at(idx); }
+
 private:
 
   std::vector<StepPlannerLogEntry> _log;

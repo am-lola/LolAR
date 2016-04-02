@@ -8,6 +8,7 @@
 #include <fstream>
 #include <sstream>
 #include <vector>
+#include <thread>
 #include <utility>
 
 #include <am2b-arvis/ARVisualizer.hpp>
@@ -20,6 +21,12 @@ ar::ARVisualizer vizImages;
 ar::PointCloudData pointCloud(ar::PCL_PointXYZ);
 ar::mesh_handle cloud_handle_pts;
 ar::mesh_handle cloud_handle_img;
+
+/// TODO: This shouldn't have to be global...
+std::map<unsigned int, std::vector<ar::mesh_handle>> img_objs;
+std::map<unsigned int, std::vector<ar::mesh_handle>> pts_objs;
+
+unsigned int current_timestep = 0;
 
 pcl::Grabber* interface;
 
@@ -103,6 +110,32 @@ void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
   }
 }
 
+// hides all objects related to the given timestep
+void HideTimeStep(unsigned int timestep)
+{
+  for (auto id : pts_objs[timestep])
+  {
+    vizPoints.SetVisibility(id, false);
+  }
+  for (auto id : img_objs[timestep])
+  {
+    vizImages.SetVisibility(id, false);
+  }
+}
+
+// shows all objects related to the given timestep
+void ShowTimeStep(unsigned int timestep)
+{
+  for (auto id : pts_objs[timestep])
+  {
+    vizPoints.SetVisibility(id, true);
+  }
+  for (auto id : img_objs[timestep])
+  {
+    vizImages.SetVisibility(id, true);
+  }
+}
+
 int main(int argc, char* argv[])
 {
   if (argc < 3)
@@ -136,6 +169,7 @@ int main(int argc, char* argv[])
   cloud_handle_pts = vizPoints.Add(pointCloud);
   cloud_handle_img = vizImages.Add(pointCloud);
 
+
   StepPlannerLogReader log(step_plan);
 
   std::cout << "Loaded " << log.Entries().size() << " log entries" << std::endl;
@@ -153,10 +187,12 @@ int main(int argc, char* argv[])
         footstep._position[0], footstep._position[1], footstep._position[2],
         quadNormal,
         0.15, 0.15,
-        ar::Color(c / (double)log.Entries().size(), footstep._foot == Left ? 1 : 0, 0.9, 0.5)
+        ar::Color(c / (double)log.Entries().size(), footstep._foot == Left ? 1 : 0, 0.9, 0.9)
       );
-      vizImages.Add(newQuad);
-      vizPoints.Add(newQuad);
+      img_objs[entry._stamp].push_back(vizImages.Add(newQuad));
+      vizImages.SetVisibility(img_objs[entry._stamp].back(), false);
+      pts_objs[entry._stamp].push_back(vizPoints.Add(newQuad));
+      vizPoints.SetVisibility(pts_objs[entry._stamp].back(), false);
 
       // find previous footstep from the same leg to draw a path
       if (i > 0)
@@ -183,8 +219,10 @@ int main(int argc, char* argv[])
                 footpath.points.push_back(easeInOut(prevstep._position[2] + step_height, footstep._position[2], (double)(k-nVerts/2) / (double)(nVerts / 2)));
             }
 
-            vizPoints.Add(footpath);
-            vizImages.Add(footpath);
+            img_objs[entry._stamp].push_back(vizImages.Add(footpath));
+            vizImages.SetVisibility(img_objs[entry._stamp].back(), false);
+            pts_objs[entry._stamp].push_back(vizPoints.Add(footpath));
+            vizPoints.SetVisibility(pts_objs[entry._stamp].back(), false);
             break;
           }
         }
@@ -200,22 +238,26 @@ int main(int argc, char* argv[])
           ar::Sphere newSphere(
             obstacle._coords[0][0], obstacle._coords[0][1], obstacle._coords[0][2], // center
             obstacle._radius, // radius
-            ar::Color(0, 0.4, 0.8, 0.5)
+            ar::Color(0, 0.4, 0.8, 0.9)
           );
-          vizImages.Add(newSphere);
-          vizPoints.Add(newSphere);
+          img_objs[entry._stamp].push_back(vizImages.Add(newSphere));
+          vizImages.SetVisibility(img_objs[entry._stamp].back(), false);
+          pts_objs[entry._stamp].push_back(vizPoints.Add(newSphere));
+          vizPoints.SetVisibility(pts_objs[entry._stamp].back(), false);
           break;
         }
         case Capsule:
         {
           ar::Capsule newCapsule(
             obstacle._coords[0][0], obstacle._coords[0][1], obstacle._coords[0][2], // center1
-            obstacle._coords[1][0], obstacle._coords[1][1], obstacle._coords[1][2],// center2
+            obstacle._coords[1][0], obstacle._coords[1][1], obstacle._coords[1][2], // center2
             obstacle._radius, // radius
-            ar::Color(0.6, 0.2, 0.6, 0.5)
+            ar::Color(0.6, 0.2, 0.6, 0.9)
           );
-          vizImages.Add(newCapsule);
-          vizPoints.Add(newCapsule);
+          img_objs[entry._stamp].push_back(vizImages.Add(newCapsule));
+          vizImages.SetVisibility(img_objs[entry._stamp].back(), false);
+          pts_objs[entry._stamp].push_back(vizPoints.Add(newCapsule));
+          vizPoints.SetVisibility(pts_objs[entry._stamp].back(), false);
           break;
         }
         default:
@@ -233,13 +275,59 @@ int main(int argc, char* argv[])
   // Add a sphere to mark the external camera's position
   vizPoints.Add(ar::Sphere(arcam_position, 0.05, ar::Color(0,1,0)));
 
-  // wait for user to exit
-  std::cout << "Press enter when ready to exit..." << std::endl;
-  std::cin.get();
-  std::cout << "Shutting down..." << std::endl;
+  // make sure first timestep is visible
+  ShowTimeStep(log.Entry(0)._stamp);
+
+  auto ctrl_wnd = vizPoints.AddUIWindow("Control Panel", 200, 400);
+  auto timestep_slider = ctrl_wnd->AddSliderInt("Timestep", 0, log.Entries().size()-1, 0);
+  auto allsteps_chkbx  = ctrl_wnd->AddCheckBox("Show All Steps", false);
+                         ctrl_wnd->AddSeparator();
+  auto exit_btn        = ctrl_wnd->AddButton("Exit");
+
+  // main event loop
+  while (!ctrl_wnd->GetButtonState(exit_btn))
+  {
+    static bool showAll = false;
+    std::this_thread::sleep_for((std::chrono::milliseconds)20);
+
+    bool allsteps_state = ctrl_wnd->GetCheckBoxState(allsteps_chkbx);
+    if (!showAll && allsteps_state)
+    {
+      showAll = true;
+      for (auto& entry : log.Entries())
+      {
+        ShowTimeStep(entry._stamp);
+      }
+    }
+    else if (showAll && !allsteps_state)
+    {
+      showAll = false;
+      for (auto& entry : log.Entries())
+      {
+        if (entry._stamp != current_timestep)
+        {
+          HideTimeStep(entry._stamp);
+        }
+      }
+    }
+    else if (!showAll)
+    {
+      int new_timestep_idx = ctrl_wnd->GetSliderIntValue(timestep_slider);
+      if (log.Entry(new_timestep_idx)._stamp != current_timestep)
+      {
+        HideTimeStep(current_timestep);
+        current_timestep = log.Entry(new_timestep_idx)._stamp;
+        std::cout << "Showing timestep: " << current_timestep << std::endl;
+        ShowTimeStep(current_timestep);
+      }
+    }
+  }
+
 
   vizPoints.Stop();
   vizImages.Stop();
+  interface->stop();
+  delete interface;
 
   return 0;
 }

@@ -13,6 +13,7 @@
 #include <am2b-arvis/ARVisualizer.hpp>
 
 #include "StepPlannerLogReader.hpp"
+#include "utils.hpp"
 
 ar::ARVisualizer vizPoints;
 ar::ARVisualizer vizImages;
@@ -42,50 +43,6 @@ double camera_forward[3]  = {-1.0,  0.08,-0.3 };
 double camera_position[3] = {-1.2,  -0.5, 6.3 };
 double arcam_position[3]  = { 6.3, -1.45, 1.8 };
 
-
-/*
-  Copies the raw data from the given cv::Mat to dst_array
-  Based on the sample code from: docs.opencv.org/2.4/doc/tutorials/core/how_to_scan_images/how_to_scan_images.html
-
-  Returns True on success, False if the conversion could not be performed
-
-  NOTE: dst_array must already be allocated with enough space to store the image!
-*/
-bool Mat2Arr(cv::Mat inputImage, unsigned char* dst_array)
-{
-  if (inputImage.depth() != CV_8U)
-  {
-    std::cout << "ERROR: Expected input image type: CV_8U! Got cv type: " << inputImage.depth() << std::endl;
-    return false;
-  }
-
-  int channels = inputImage.channels();
-  int nRows = inputImage.rows;
-  int nCols = inputImage.cols * channels;
-
-  if (inputImage.isContinuous())
-  {
-    nCols *= nRows;
-    nRows = 1;
-  }
-
-  int p = 0;
-  for (int i = 0; i < nRows; i++)
-  {
-    uint8_t* rowPtr = inputImage.ptr<uchar>(i);
-    for (int j = 0; j < nCols; j += channels)
-    {
-      // note the order here, because the cv::Mat is BGR and we need RGB
-      dst_array[p + 0] = rowPtr[j + 2]; // R
-      dst_array[p + 1] = rowPtr[j + 1]; // G
-      dst_array[p + 2] = rowPtr[j + 0]; // B
-
-      p += 3;
-    }
-  }
-
-  return true;
-}
 
 /*
   This callback is called from PCL every time a new RGB image is available
@@ -187,17 +144,51 @@ int main(int argc, char* argv[])
   {
     static double c = 0.0;
     c += 1.0;
-    for (auto footsep : entry._footsteps)
+
+    for (size_t i = 0; i < entry._footsteps.size(); i++)
     {
+      auto footstep = entry._footsteps[i];
       double quadNormal[3] = {0, 0, 1};
       ar::Quad newQuad(
-        footsep._position[0], footsep._position[1], footsep._position[2],
+        footstep._position[0], footstep._position[1], footstep._position[2],
         quadNormal,
         0.15, 0.15,
-        ar::Color(c / (double)log.Entries().size(), footsep._foot == Left ? 1 : 0, 0.9, 0.5)
+        ar::Color(c / (double)log.Entries().size(), footstep._foot == Left ? 1 : 0, 0.9, 0.5)
       );
       vizImages.Add(newQuad);
       vizPoints.Add(newQuad);
+
+      // find previous footstep from the same leg to draw a path
+      if (i > 0)
+      {
+        for (int j = i-1; j >= 0; j--)
+        {
+          // draw an arc connecting each pair of footsteps
+          /// TODO: get the true path data from the step planner
+          if (entry._footsteps[j]._foot == footstep._foot)
+          {
+            Footstep& prevstep = entry._footsteps[j];
+            ar::LinePath footpath(0.004f, ar::Color(1, 1, 1));
+            int nVerts = 16; // number of points for each path
+            // set the highest point of each step path based on XY distance between steps
+            double step_height = lerp(0, 0.25, (footstep._position[0] - prevstep._position[0]) * (footstep._position[0] - prevstep._position[0]) +
+                                               (footstep._position[1] - prevstep._position[1]) * (footstep._position[1] - prevstep._position[1]));
+            for (size_t k = 0; k <= nVerts; k++)
+            {
+              footpath.points.push_back(lerp(prevstep._position[0], footstep._position[0], (double)k / (double)nVerts));
+              footpath.points.push_back(lerp(prevstep._position[1], footstep._position[1], (double)k / (double)nVerts));
+              if (k < nVerts / 2)
+                footpath.points.push_back(easeInOut(prevstep._position[2], prevstep._position[2] + step_height, (double)k / (double)(nVerts / 2)));
+              else
+                footpath.points.push_back(easeInOut(prevstep._position[2] + step_height, footstep._position[2], (double)(k-nVerts/2) / (double)(nVerts / 2)));
+            }
+
+            vizPoints.Add(footpath);
+            vizImages.Add(footpath);
+            break;
+          }
+        }
+      }
     }
 
     for (auto obstacle : entry._obstacles)

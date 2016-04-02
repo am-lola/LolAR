@@ -9,6 +9,29 @@
 // Converts radians to degrees.
 #define DEGREES(angleRadians) (angleRadians * 180.0 / M_PI)
 
+
+// linear interpolation from start to end
+double lerp(double start, double end, double d)
+{
+  if (d >= 1.0)
+    return end;
+  else if (d <= 0.0)
+    return start;
+  else
+    return ((1.0 - d) * start) + (d * end);
+}
+
+// smooth interpolation between start & end with easing on both sides
+double easeInOut(double start, double end, double d)
+{
+  if (d >= 1.0)
+    return end;
+  else if (d <= 0.0)
+    return start;
+  else
+    return lerp(start, end, d * d * (3.0 - 2.0 * d));
+}
+
 /*
   Copies the raw data from the given cv::Mat to dst_array
   Based on the sample code from: docs.opencv.org/2.4/doc/tutorials/core/how_to_scan_images/how_to_scan_images.html

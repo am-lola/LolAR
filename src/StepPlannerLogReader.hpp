@@ -19,6 +19,7 @@ private:
 
   std::vector<StepPlannerLogEntry> _log;
 
+  // reads the given stepplanner log file and populates _log with all entries
   void ParseStepLog(std::string filename);
 
   // # of entries in each log line

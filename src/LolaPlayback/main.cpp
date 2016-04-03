@@ -136,18 +136,8 @@ void ShowTimeStep(unsigned int timestep)
   }
 }
 
-int main(int argc, char* argv[])
+void init(std::string oni_input)
 {
-  if (argc < 3)
-  {
-    std::cout << "ERROR: You must provide an input filename!" << std::endl;
-    return -1;
-  }
-
-  std::string oni_input = argv[1];
-  std::string step_plan = argv[2];
-
-
   interface = new pcl::ONIGrabber(oni_input, true, true);
 
   // subscribe to grabber's pointcloud callback
@@ -169,11 +159,51 @@ int main(int argc, char* argv[])
   cloud_handle_pts = vizPoints.Add(pointCloud);
   cloud_handle_img = vizImages.Add(pointCloud);
 
+  // Add some lines to mark the world axes at the origin
+  ar::LinePath xAxis(0.004f, ar::Color(1,0,0));
+  ar::LinePath yAxis(0.004f, ar::Color(0,1,0));
+  ar::LinePath zAxis(0.004f, ar::Color(0,0,1));
+  xAxis.points.push_back(0);   xAxis.points.push_back(0);   xAxis.points.push_back(0);
+  xAxis.points.push_back(0.25);xAxis.points.push_back(0);   xAxis.points.push_back(0);
+  yAxis.points.push_back(0);   yAxis.points.push_back(0);   yAxis.points.push_back(0);
+  yAxis.points.push_back(0);   yAxis.points.push_back(0.25);yAxis.points.push_back(0);
+  zAxis.points.push_back(0);   zAxis.points.push_back(0);   zAxis.points.push_back(0);
+  zAxis.points.push_back(0);   zAxis.points.push_back(0);   zAxis.points.push_back(0.25);
 
+  vizPoints.Add(xAxis); vizPoints.Add(yAxis); vizPoints.Add(zAxis);
+  vizImages.Add(xAxis); vizImages.Add(yAxis); vizImages.Add(zAxis);
+
+
+  // Add a sphere to mark the external camera's position
+  vizPoints.Add(ar::Sphere(arcam_position, 0.05, ar::Color(0,1,0)));
+}
+
+void cleanup()
+{
+  vizPoints.Stop();
+  vizImages.Stop();
+  interface->stop();
+  delete interface;
+}
+
+int main(int argc, char* argv[])
+{
+  if (argc < 3)
+  {
+    std::cout << "ERROR: You must provide an input filename!" << std::endl;
+    return -1;
+  }
+
+  std::string oni_input = argv[1];
+  std::string step_plan = argv[2];
+
+  init(oni_input);
+
+  std::cout << "Loading step planner log from file: " << step_plan << std::endl;
   StepPlannerLogReader log(step_plan);
-
   std::cout << "Loaded " << log.Entries().size() << " log entries" << std::endl;
 
+  std::cout << "Preparing geometry for rendering...";
   for (auto entry : log.Entries())
   {
     static double c = 0.0;
@@ -267,13 +297,7 @@ int main(int argc, char* argv[])
       }
     }
   }
-
-  // Add a sphere to mark the origin in both windows
-  vizPoints.Add(ar::Sphere(0,0,0,0.05, ar::Color(1.0,0,0)));
-  vizImages.Add(ar::Sphere(0,0,0,0.05, ar::Color(1.0,0,0)));
-
-  // Add a sphere to mark the external camera's position
-  vizPoints.Add(ar::Sphere(arcam_position, 0.05, ar::Color(0,1,0)));
+  std::cout << "done!" << std::endl;
 
   // make sure first timestep is visible
   ShowTimeStep(log.Entry(0)._stamp);
@@ -323,11 +347,7 @@ int main(int argc, char* argv[])
     }
   }
 
-
-  vizPoints.Stop();
-  vizImages.Stop();
-  interface->stop();
-  delete interface;
-
+  std::cout << "Shutting down..." << std::endl;
+  cleanup();
   return 0;
 }

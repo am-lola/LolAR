@@ -32,11 +32,69 @@ public:
     _visualizer.SetCameraPose(camera_position, camera_forward, camera_up);
   }
 
+  CameraPoseEstimator(ArucoTracker tracker, FloorDetector<PointT> floorDetector, Eigen::Vector3f initial_pos, Eigen::Vector3f initial_rot)
+  {
+    _markerTracker = tracker;
+    _floorDetector = floorDetector;
+    _visualizer.Start("Camera Pose Estimation");
+
+    _cameraPosition = initial_pos;
+    _cameraRotation = initial_rot;
+
+    // set our visualizer's camera to the initial values
+    double camera_position[3] = { _cameraPosition[0], _cameraPosition[1], _cameraPosition[2] };
+    double camera_rotation[3][3];
+    GetRotationMatrix(camera_rotation);
+    _visualizer.SetCameraPose(camera_position, camera_rotation);
+  }
+
   ~CameraPoseEstimator()
   {
     _visualizer.Stop();
   }
 
+  // Gets the latest position estimate of the camera
+  // @position Buffer to store the position in. Must be of length 3.
+  void GetPosition(double* position)
+  {
+    for (size_t i = 0; i < 3; i++)
+    {
+      position[i] = _cameraPosition[i];
+    }
+  }
+
+  // Gets the euler angles for the latest estimate of the camera's orientation
+  // @rotation Buffer to store the rotation in. Must be of length 3.
+  void GetOrientation(double* rotation)
+  {
+    for (size_t i = 0; i < 3; i++)
+    {
+      rotation[i] = _cameraRotation[i];
+    }
+  }
+
+  // Gets a 3x3 rotation matrix for the camera's current estimated orientation
+  // @rotation Buffer to store the rotation matrix in. Must be 3x3 array.
+  void GetRotationMatrix(double rotation[3][3])
+  {
+    Eigen::AngleAxisd rollAngle(_cameraRotation[0], Eigen::Vector3d::UnitX());
+    Eigen::AngleAxisd pitchAngle(_cameraRotation[1], Eigen::Vector3d::UnitY());
+    Eigen::AngleAxisd yawAngle(_cameraRotation[2], Eigen::Vector3d::UnitZ());
+
+    Eigen::Quaternion<double> q = rollAngle * pitchAngle * yawAngle;
+    Eigen::Matrix3d rotationMatrix = q.matrix();
+
+    for (size_t i = 0; i < 3; i++)
+    {
+      for (size_t j = 0; j < 3; j++)
+      {
+        rotation[i][j] = rotationMatrix(i, j);
+      }
+    }
+  }
+
+  // Updates camera parameters from a pointcloud generated from the camera's perspective
+  // From the pointcloud we get: Pitch, Roll, and Height (Z)
   void Update(const typename pcl::PointCloud<PointT>::ConstPtr& cloud)
   {
     _lastCloud = cloud;
@@ -94,6 +152,8 @@ public:
     std::cout << "New Camera Orientation: [" << DEGREES(_cameraRotation[0]) << ", " << DEGREES(_cameraRotation[1]) << ", " << DEGREES(_cameraRotation[2]) << "]" << std::endl;
   }
 
+  // Updates camera parameters from an RGB image captured from the camera's perspective
+  // From the image we get: Yaw, X, Y
   void Update(const boost::shared_ptr<openni_wrapper::Image>& image)
   {
     _lastImage = image;

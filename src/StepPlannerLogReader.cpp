@@ -31,7 +31,7 @@ void StepPlannerLogReader::ParseStepLog(std::string filename)
     if ( line.find("#") == 0 )  // skip commented lines
     {
       std::stringstream ss(line);
-      int i = 0;
+      unsigned int i = 0;
       while ( ss.good() && i < _log_width )
       {
         ss >> splitLine_header[i];
@@ -41,7 +41,7 @@ void StepPlannerLogReader::ParseStepLog(std::string filename)
     }
 
     std::stringstream ss(line);
-    int i = 0;
+    unsigned int i = 0;
     while ( ss.good() && i < _log_width )
     {
       ss >> splitLine[i];
@@ -72,7 +72,7 @@ void StepPlannerLogReader::ParseStepLog(std::string filename)
       Footstep newFootstep;
       newFootstep._foot = static_cast<Foot>(std::stoi(splitLine[_footstep_foot_idx]));
       newFootstep._phi  = std::stod(splitLine[_footstep_rotation_idx]);
-      for (int i = _footstep_coord_idx; i < _footstep_coord_idx + _footstep_coord_size; i++)
+      for (size_t i = _footstep_coord_idx; i < _footstep_coord_idx + _footstep_coord_size; i++)
       {
         newFootstep._position.push_back(std::stod(splitLine[i]));
       }
@@ -86,7 +86,7 @@ void StepPlannerLogReader::ParseStepLog(std::string filename)
     newObstacle._radius = std::stod(splitLine[_obstacle_radius_idx]);
 
     // obstacle coordinates
-    for (int i = _obstacle_coord_idx; i < _obstacle_coord_idx + _obstacle_coord_size; i += 3)
+    for (size_t i = _obstacle_coord_idx; i < _obstacle_coord_idx + _obstacle_coord_size; i += 3)
     {
       newObstacle._coords.push_back({
         {

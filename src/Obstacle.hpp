@@ -39,7 +39,7 @@ struct Obstacle
     for (auto coord : _coords)
     {
       result += "(";
-      for (int i = 0; i < coord.size(); i++)
+      for (size_t i = 0; i < coord.size(); i++)
       {
         result += std::to_string(coord[i]);
         if (i < coord.size() - 1)

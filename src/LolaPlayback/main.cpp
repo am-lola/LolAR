@@ -19,7 +19,12 @@
 #include <am2b-arvis/ARVisualizer.hpp>
 
 #include "StepPlannerLogReader.hpp"
+#include "CameraPoseEstimator.hpp"
+#include "CameraIntrinsics.hpp"
+#include "FloorDetector.hpp"
 #include "utils.hpp"
+
+typedef pcl::PointXYZ PointT;
 
 ar::ARVisualizer vizPoints;
 ar::ARVisualizer vizImages;
@@ -43,19 +48,24 @@ struct PlaybackParams
   std::string poseLog;
 };
 
-// camera intrinsic parameters for RGB sensor
-// double camera_matrix[3][3] = {
-//   5.2921508098293293e+02, 0.0, 3.2894272028759258e+02,
-//   0.0, 5.2556393630057437e+02, 2.6748068171871557e+02,
-//   0.0, 0.0, 1.0
-// };
-
-// default camera intrinsic parameters
+// camera intrinsic parameters for Kinect RGB sensor
 double camera_matrix[3][3] = {
-  5.25, 0.0, 3.0,
-  0.0, 5.25, 2.0,
+  5.2921508098293293e+02, 0.0, 3.2894272028759258e+02,
+  0.0, 5.2556393630057437e+02, 2.6748068171871557e+02,
   0.0, 0.0, 1.0
 };
+
+// distortion coefficients from Kinect RGB sensor
+std::vector<double> camera_distortion = {
+  2.6451622333009589e-01,
+ -8.3990749424620825e-01,
+ -1.9922302173693159e-03,
+  1.4371995932897616e-03,
+  9.1192465078713847e-01
+};
+
+CameraIntrinsics camera_params(camera_matrix, camera_distortion);
+CameraPoseEstimator<PointT>* cameraPoseEstimator;
 
 // initial camera configuration
 double camera_up[3]       = { 0.0,   0.0, 1.0 }; // only correct when robot is not connected
@@ -69,6 +79,8 @@ double arcam_position[3]  = { 6.3, -1.45, 1.8 };
 */
 void image_callback (const boost::shared_ptr<openni_wrapper::Image>& image)
 {
+  cameraPoseEstimator->Update(image);
+
   // only send data if the visualizer has started
   if (vizImages.IsRunning())
   {
@@ -96,6 +108,8 @@ void image_callback (const boost::shared_ptr<openni_wrapper::Image>& image)
 
 void image_callback(cv::Mat& image)
 {
+  cameraPoseEstimator->Update(image);
+
   if (vizImages.IsRunning())
   {
     static unsigned char* img_data = new unsigned char[image.size().width * image.size().height * image.channels()];
@@ -107,10 +121,11 @@ void image_callback(cv::Mat& image)
   }
 }
 
-typedef pcl::PointXYZ PointT;
 
 void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
 {
+  cameraPoseEstimator->Update(cloud);
+
   // only send data if the visualizer has started
   if (vizPoints.IsRunning())
   {
@@ -282,7 +297,7 @@ void initStepLog(StepPlannerLogReader& log)
           {
             Footstep& prevstep = entry._footsteps[j];
             ar::LinePath footpath(0.004f, ar::Color(1, 1, 1));
-            int nVerts = 16; // number of points for each path
+            unsigned int nVerts = 16; // number of points for each path
             // set the highest point of each step path based on XY distance between steps
             double step_height = lerp(0, 0.25, (footstep._position[0] - prevstep._position[0]) * (footstep._position[0] - prevstep._position[0]) +
                                                (footstep._position[1] - prevstep._position[1]) * (footstep._position[1] - prevstep._position[1]));
@@ -471,6 +486,13 @@ int main(int argc, char* argv[])
     printHelp(argv[0]);
     return 0;
   }
+
+  auto dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_5X5_1000);
+  auto marker = cv::aruco::GridBoard::create(1,2, 0.195, 0.01, dictionary);
+  auto tracker = ArucoTracker(camera_params, marker);
+  auto floorDetector = FloorDetector<PointT>(Eigen::Vector3f(0.0, -1.0, 0.0), 0.78);
+
+  cameraPoseEstimator = new CameraPoseEstimator<PointT>(tracker, floorDetector);
 
   initVisualizers();
   auto ctrl_wnd = vizPoints.AddUIWindow("Control Panel", 200, 400);

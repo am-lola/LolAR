@@ -10,8 +10,11 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 
+#include <glm/gtx/euler_angles.hpp>
+
 #include <iostream>
 
+#include "utils.hpp"
 #include "ArucoTracker.hpp"
 #include "FloorDetector.hpp"
 
@@ -152,129 +155,34 @@ public:
     std::cout << "New Camera Orientation: [" << DEGREES(_cameraRotation[0]) << ", " << DEGREES(_cameraRotation[1]) << ", " << DEGREES(_cameraRotation[2]) << "]" << std::endl;
   }
 
-  // Updates camera parameters from an RGB image captured from the camera's perspective
-  // From the image we get: Yaw, X, Y
-  void Update(const boost::shared_ptr<openni_wrapper::Image>& image)
+  void Update(cv::Mat& image)
   {
-    _lastImage = image;
     _markerTracker.Track(image);
 
     if(_markerTracker.HasPose())
     {
-      double* pose = _markerTracker.LastTranslation();
-      ar::Transform marker_transform(pose);
-      glm::vec3 euler_angles = glm::vec3(
-          -_markerTracker.LastRotation()[2],
-          -_markerTracker.LastRotation()[0],
-          -_markerTracker.LastRotation()[1]
-      );
-      glm::mat3 rotation = glm::orientate3(euler_angles);
-      for (int i = 0; i < 3; i++)
-      {
-        for (int j = 0; j < 3; j++)
-        {
-          marker_transform.rotation[i][j] = rotation[i][j];
-        }
-      }
-
       // if we have good pointcloud data, estimate marker's true position from there
-      /// TODO: This should probably be in ArucoTracker instead of here
       if (_lastCloud->height > 1)
       {
         double* image_location = _markerTracker.LastImagePos();
-        if (_lastCloud->height > image_location[1] && _lastCloud->width > image_location[0])
-        {
-          auto point = _lastCloud->at(glm::floor(image_location[0]), glm::floor(image_location[1]));
-          if (point.x + point.y + point.z != 0 &&
-              !std::isnan(point.x) && !std::isnan(point.y) && !std::isnan(point.z))
-          {
-            // marker's center
-            double truePosition[3] = {point.x, point.y, point.z};
-            ar::Sphere truePos(truePosition, 0.02, ar::Color(1,0,0));
-            static ar::mesh_handle marker_origin_handle = _visualizer.Add(truePos);
-            _visualizer.Update(marker_origin_handle, truePos);
+        UpdateFromMarkerPos(glm::floor(image_location[0]), glm::floor(image_location[1]));
+      }
+    }
+  }
 
-            // extract a portion of the cloud around the detected marker
-            typename pcl::PointCloud<PointT>::Ptr markercloud(new pcl::PointCloud<PointT>);
+  // Updates camera parameters from an RGB image captured from the camera's perspective
+  // From the image we get: Yaw, X, Y
+  void Update(const boost::shared_ptr<openni_wrapper::Image>& image)
+  {
+    _markerTracker.Track(image);
 
-            // Fill in the cloud data /// TODO: scale # of points taken with distance from sensor
-            markercloud->width  = 129;
-            markercloud->height = 129;
-            markercloud->points.resize(markercloud->width * markercloud->height);
-            for (size_t i = 0; i < markercloud->width; ++i)
-            {
-              for (size_t j = 0; j < markercloud->height; ++j)
-              {
-                markercloud->at(i,j) = _lastCloud->at(image_location[0] + i-64, image_location[1] + j-64);
-              }
-            }
-
-            // find plane near detected Marker
-            pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
-            pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
-            pcl::SACSegmentation<PointT> seg;
-            seg.setOptimizeCoefficients(true);
-            seg.setModelType(pcl::SACMODEL_PLANE);
-            seg.setMethodType(pcl::SAC_RANSAC);
-            seg.setDistanceThreshold(0.01);
-            seg.setInputCloud (markercloud);
-            seg.segment (*inliers, *coefficients);
-
-            if (inliers->indices.size() != 0)
-            {
-              // if we found a plane, extract the points which fit it and display them
-              typename pcl::PointCloud<PointT>::Ptr planecloud(new pcl::PointCloud<PointT>);
-              pcl::ExtractIndices<pcl::PointXYZ> extractor;
-              extractor.setInputCloud(markercloud);
-              extractor.setIndices(inliers);
-              extractor.setNegative(false);
-              extractor.filter(*planecloud);
-
-              const PointT* plane_data = &planecloud->points[0];
-              static ar::PointCloudData markerPlane(ar::PCL_PointXYZ, ar::Color(1, 0, 0));
-              static ar::mesh_handle markerPlane_handle = _visualizer.Add(markerPlane);
-              markerPlane.pointData = reinterpret_cast<const void*>(plane_data);
-              markerPlane.numPoints = planecloud->size();
-              _visualizer.Update(markerPlane_handle, markerPlane);
-
-              double board_normal[3] = {
-                    coefficients->values[0] / coefficients->values[3],
-                    coefficients->values[1] / coefficients->values[3],
-                    coefficients->values[2] / coefficients->values[3]
-              };
-
-              // visualize marker board
-              static ar::Quad board = ar::Quad(truePosition, board_normal, 0.4, 0.3, ar::Color(0.8,0.8,0));
-              static ar::mesh_handle board_handle = _visualizer.Add(board);
-              static ar::Transform boardTransform = ar::Transform();
-              boardTransform.translation[0] = truePosition[0];
-              boardTransform.translation[1] = truePosition[1];
-              boardTransform.translation[2] = truePosition[2];
-              auto boardRotation = Eigen::Quaternionf::FromTwoVectors(Eigen::Vector3f(0, 0, 1), Eigen::Vector3f(board_normal[0], board_normal[1], board_normal[2])).toRotationMatrix();
-              for (size_t i = 0; i < 3; i++)
-              {
-                for (size_t j = 0; j < 3; j++)
-                {
-                  boardTransform.rotation[i][j] = boardRotation(i, j);
-                }
-              }
-              _visualizer.Update(board_handle, boardTransform, true);
-
-              // find camera's position, relative to marker     /// TODO: add offset from marker to Lola's world origin
-              _cameraPosition[0] = -truePosition[2]; // Z in sensor-coords is X in world coords
-              _cameraPosition[1] = -truePosition[0]; // X in sensor-coords is Y in world coords
-
-              // find camera's yaw rotation, relative to marker /// TODO: add offset from marker to Lola's world origin
-              Eigen::Vector3f board_normal_adjusted = Eigen::Vector3f(board_normal[0], 0.0f, board_normal[2]).normalized();
-              _cameraRotation[1] = M_PI - acos(board_normal_adjusted.dot(Eigen::Vector3f(0.0f, 0.0f, 1.0f)));
-              // ensure sign of the rotation is correct -- assumes rotation is about the -Y axis, with +Z aligning to a rotation of 0 degrees
-              if (Eigen::Vector3f(0.0f, -1.0f, 0.0f).dot(board_normal_adjusted.cross(Eigen::Vector3f(0.0f, 0.0f, 1.0f))) < 0)
-              {
-                _cameraRotation[1] = -_cameraRotation[1];
-              }
-            }
-          }
-        }
+    if(_markerTracker.HasPose())
+    {
+      // if we have good pointcloud data, estimate marker's true position from there
+      if (_lastCloud->height > 1)
+      {
+        double* image_location = _markerTracker.LastImagePos();
+        UpdateFromMarkerPos(glm::floor(image_location[0]), glm::floor(image_location[1]));
       }
     }
   }
@@ -287,9 +195,106 @@ private:
   Eigen::Vector3f _cameraRotation; // euler angles for camera's orientation (in world coords)
 
   typename pcl::PointCloud<PointT>::ConstPtr _lastCloud; // most recent pointcloud received
-  boost::shared_ptr<openni_wrapper::Image> _lastImage; // most recent image received
 
   ar::ARVisualizer _visualizer;
+
+  // Updates camera parameters from a detected marker in an RGB image corresponded with points in a recent pointcloud
+  // Updates: Yaw, X, Y
+  // @markerX x-coord of marker center in image
+  // @markerY y-coord of marker center in image
+  void UpdateFromMarkerPos(int markerX, int markerY)
+  {
+    auto point = _lastCloud->at(markerX, markerY);
+    if (point.x + point.y + point.z != 0 &&
+        !std::isnan(point.x) && !std::isnan(point.y) && !std::isnan(point.z))
+    {
+      // marker's center
+      double truePosition[3] = {point.x, point.y, point.z};
+      ar::Sphere truePos(truePosition, 0.02, ar::Color(1,0,0));
+      static ar::mesh_handle marker_origin_handle = _visualizer.Add(truePos);
+      _visualizer.Update(marker_origin_handle, truePos);
+
+      // extract a portion of the cloud around the detected marker
+      typename pcl::PointCloud<PointT>::Ptr markercloud(new pcl::PointCloud<PointT>);
+
+      // Fill in the cloud data /// TODO: scale # of points taken with distance from sensor
+      markercloud->width  = 129;
+      markercloud->height = 129;
+      markercloud->points.resize(markercloud->width * markercloud->height);
+      for (size_t i = 0; i < markercloud->width; ++i)
+      {
+        for (size_t j = 0; j < markercloud->height; ++j)
+        {
+          markercloud->at(i,j) = _lastCloud->at(markerX + i-64, markerY + j-64);
+        }
+      }
+
+      // find plane near detected Marker
+      pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
+      pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
+      pcl::SACSegmentation<PointT> seg;
+      seg.setOptimizeCoefficients(true);
+      seg.setModelType(pcl::SACMODEL_PLANE);
+      seg.setMethodType(pcl::SAC_RANSAC);
+      seg.setDistanceThreshold(0.01);
+      seg.setInputCloud (markercloud);
+      seg.segment (*inliers, *coefficients);
+
+      if (inliers->indices.size() != 0)
+      {
+        // if we found a plane, extract the points which fit it and display them
+        typename pcl::PointCloud<PointT>::Ptr planecloud(new pcl::PointCloud<PointT>);
+        pcl::ExtractIndices<pcl::PointXYZ> extractor;
+        extractor.setInputCloud(markercloud);
+        extractor.setIndices(inliers);
+        extractor.setNegative(false);
+        extractor.filter(*planecloud);
+
+        const PointT* plane_data = &planecloud->points[0];
+        static ar::PointCloudData markerPlane(ar::PCL_PointXYZ, ar::Color(1, 0, 0));
+        static ar::mesh_handle markerPlane_handle = _visualizer.Add(markerPlane);
+        markerPlane.pointData = reinterpret_cast<const void*>(plane_data);
+        markerPlane.numPoints = planecloud->size();
+        _visualizer.Update(markerPlane_handle, markerPlane);
+
+        double board_normal[3] = {
+              coefficients->values[0] / coefficients->values[3],
+              coefficients->values[1] / coefficients->values[3],
+              coefficients->values[2] / coefficients->values[3]
+        };
+
+        // visualize marker board
+        static ar::Quad board = ar::Quad(truePosition, board_normal, 0.4, 0.3, ar::Color(0.8,0.8,0));
+        static ar::mesh_handle board_handle = _visualizer.Add(board);
+        static ar::Transform boardTransform = ar::Transform();
+        boardTransform.translation[0] = truePosition[0];
+        boardTransform.translation[1] = truePosition[1];
+        boardTransform.translation[2] = truePosition[2];
+        auto boardRotation = Eigen::Quaternionf::FromTwoVectors(Eigen::Vector3f(0, 0, 1), Eigen::Vector3f(board_normal[0], board_normal[1], board_normal[2])).toRotationMatrix();
+        for (size_t i = 0; i < 3; i++)
+        {
+          for (size_t j = 0; j < 3; j++)
+          {
+            boardTransform.rotation[i][j] = boardRotation(i, j);
+          }
+        }
+        _visualizer.Update(board_handle, boardTransform, true);
+
+        // find camera's position, relative to marker     /// TODO: add offset from marker to Lola's world origin
+        _cameraPosition[0] = -truePosition[2]; // Z in sensor-coords is X in world coords
+        _cameraPosition[1] = -truePosition[0]; // X in sensor-coords is Y in world coords
+
+        // find camera's yaw rotation, relative to marker /// TODO: add offset from marker to Lola's world origin
+        Eigen::Vector3f board_normal_adjusted = Eigen::Vector3f(board_normal[0], 0.0f, board_normal[2]).normalized();
+        _cameraRotation[1] = M_PI - acos(board_normal_adjusted.dot(Eigen::Vector3f(0.0f, 0.0f, 1.0f)));
+        // ensure sign of the rotation is correct -- assumes rotation is about the -Y axis, with +Z aligning to a rotation of 0 degrees
+        if (Eigen::Vector3f(0.0f, -1.0f, 0.0f).dot(board_normal_adjusted.cross(Eigen::Vector3f(0.0f, 0.0f, 1.0f))) < 0)
+        {
+          _cameraRotation[1] = -_cameraRotation[1];
+        }
+      }
+    }
+  }
 };
 
 #endif // _CAMERA_POSE_ESTIMATOR_H_

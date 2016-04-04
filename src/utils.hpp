@@ -2,6 +2,7 @@
 #define _UTILS_H
 
 #include <opencv2/opencv.hpp>
+#include <sys/stat.h>
 
 // Converts degrees to radians.
 #define RADIANS(angleDegrees) (angleDegrees * M_PI / 180.0)
@@ -30,6 +31,13 @@ double easeInOut(double start, double end, double d)
     return start;
   else
     return lerp(start, end, d * d * (3.0 - 2.0 * d));
+}
+
+// checks for the existence of a path
+bool checkPath(std::string filename)
+{
+  struct stat buffer;
+  return (stat (filename.c_str(), &buffer) == 0);
 }
 
 /*

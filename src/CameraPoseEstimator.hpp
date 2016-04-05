@@ -96,6 +96,28 @@ public:
     }
   }
 
+  // Gets a transformation which can be used to rotate/translate point clouds & other objects
+  // relative to the camera from PCL's coordinate frame
+  Eigen::Affine3f GetTransform()
+  {
+    Eigen::Affine3f transform = Eigen::Affine3f::Identity();
+
+    // flip from pcl's sensor coords to world coords
+    transform.scale(Eigen::Vector3f(1, -1, 1)); // y-axis is flipped in pcl-land
+    transform.rotate(Eigen::AngleAxisf(-M_PI * 0.5f, Eigen::Vector3f::UnitX()));
+    transform.rotate(Eigen::AngleAxisf( M_PI * 0.5f, Eigen::Vector3f::UnitY())); // Z & Y axes are interchanged between our coords & PCL's coords
+
+    // apply camera transformation
+    Eigen::AngleAxisf rollAngle(-_cameraRotation[0], Eigen::Vector3f::UnitX());
+    Eigen::AngleAxisf pitchAngle(-_cameraRotation[1], Eigen::Vector3f::UnitY());
+    Eigen::AngleAxisf yawAngle(-_cameraRotation[2], Eigen::Vector3f::UnitZ());
+
+    transform.rotate(Eigen::Quaternionf(rollAngle * pitchAngle * yawAngle));
+    transform.pretranslate(_cameraPosition);
+
+    return transform;
+  }
+
   // Updates camera parameters from a pointcloud generated from the camera's perspective
   // From the pointcloud we get: Pitch, Roll, and Height (Z)
   void Update(const typename pcl::PointCloud<PointT>::ConstPtr& cloud)

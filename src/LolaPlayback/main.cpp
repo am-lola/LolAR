@@ -31,6 +31,7 @@ ar::ARVisualizer vizImages;
 ar::PointCloudData pointCloud(ar::PCL_PointXYZ);
 ar::mesh_handle cloud_handle_pts;
 ar::mesh_handle cloud_handle_img;
+ar::mesh_handle camera_marker_handle;
 
 /// TODO: This shouldn't have to be global...
 std::map<unsigned int, std::vector<ar::mesh_handle>> img_objs;
@@ -129,25 +130,20 @@ void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
   // only send data if the visualizer has started
   if (vizPoints.IsRunning())
   {
-    Eigen::Affine3f cloud_transform = Eigen::Affine3f::Identity();
-    pcl::getTransformationFromTwoUnitVectorsAndOrigin(
-      Eigen::Vector3f( 0.0f,-1.0f, 0.0f), // y_dir
-      Eigen::Vector3f(-1.0f, 0.0f, 0.0f), // z_dir
-      Eigen::Vector3f(camera_position[0], camera_position[1], camera_position[2]),
-      cloud_transform
-    );
-
-    Eigen::Affine3f cloud_transform_2 = Eigen::Affine3f::Identity();
-    cloud_transform_2.rotate(Eigen::AngleAxis<float>(0.5f*M_PI, Eigen::Vector3f::UnitX()));
-
+    Eigen::Affine3f cloud_transform = cameraPoseEstimator->GetTransform();
     pcl::PointCloud<PointT>::Ptr transformed_cloud (new pcl::PointCloud<PointT> ());
-    pcl::transformPointCloud (*cloud, *transformed_cloud, cloud_transform);
-    pcl::transformPointCloud (*transformed_cloud, *transformed_cloud, cloud_transform_2);
+    pcl::transformPointCloud(*cloud, *transformed_cloud, cloud_transform);
 
+    // give the visualizer the new points
     const PointT* data = &transformed_cloud->points[0];
     pointCloud.pointData = reinterpret_cast<const void*>(data);
-    pointCloud.numPoints = cloud->size();
-    vizPoints.Update(cloud_handle_pts, pointCloud); // give the visualizer the new points
+    pointCloud.numPoints = transformed_cloud->size();
+    vizPoints.Update(cloud_handle_pts, pointCloud);
+
+    // move our camera marker to match the new estimated position
+    static double camera_position[3] = {0, 0, 0};
+    cameraPoseEstimator->GetPosition(camera_position);
+    vizPoints.Update(camera_marker_handle, ar::Sphere(camera_position, 0.05, ar::Color(0,1,0)));
   }
 }
 
@@ -464,7 +460,7 @@ void initVisualizers()
   vizImages.Add(xAxis); vizImages.Add(yAxis); vizImages.Add(zAxis);
 
   // Add a sphere to mark the external camera's position
-  vizPoints.Add(ar::Sphere(arcam_position, 0.05, ar::Color(0,1,0)));
+  camera_marker_handle = vizPoints.Add(ar::Sphere(arcam_position, 0.05, ar::Color(0,1,0)));
 }
 
 void cleanup()

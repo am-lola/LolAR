@@ -4,6 +4,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <map>
+
 #include <getopt.h>
 #include <algorithm>
 #include <string>
@@ -87,7 +88,7 @@ struct struct_data_stepseq_ssv_log
  * A client to collect and visualize data from LOLA
  *
  * Listens on the given port for any incoming data from the vision
- * system, and adds it to a local visulization.
+ * system, and adds it to a local visualization.
  */
 
 // maximum # of bytes expected in any incoming packet
@@ -184,7 +185,7 @@ Obstacle getRealObstacle(am2b_iface::ObstacleMessage* ob)
   Obstacle real;
   real._type = (ObstacleType)ob->type;
   real._id = ob->model_id;
-  real._radius = (double)ob->radius; // LolaAggregator multiplies all non-int values by 1000 before sending
+  real._radius = (double)ob->radius;
 
   for (size_t i = 0; i < 3; i++)
   {

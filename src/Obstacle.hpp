@@ -7,7 +7,8 @@
 enum ObstacleType
 {
   Sphere = 0,
-  Capsule = 1
+  Capsule = 1,
+  Triangle = 2
 };
 
 struct Obstacle

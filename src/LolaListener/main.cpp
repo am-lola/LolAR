@@ -3,10 +3,12 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <signal.h>
 #include <map>
 
 #include <getopt.h>
 #include <algorithm>
+#include <thread>
 #include <string>
 #include <vector>
 #include <iostream>
@@ -94,12 +96,15 @@ struct struct_data_stepseq_ssv_log
 // maximum # of bytes expected in any incoming packet
 #define BUFLEN 2048
 ar::ARVisualizer viz;
+bool shuttingDown = false;
 // maps lepp IDs to visualizer IDs
 std::map<int, ar::mesh_handle> obstacle_id_map;
 
 struct ParsedParams
 {
-  unsigned int port = 0; // port number to listen on
+  unsigned int obstaclePort = 0; // port number to listen on for obstacle data
+  unsigned int footstepPort = 0; // port number to listen on for footstep data
+  unsigned int posePort     = 0; // port number to listen on for pose data
   bool verbose = false;
 };
 
@@ -117,14 +122,15 @@ bool parse_args(int argc, char* argv[], ParsedParams* params)
   {
     static struct option long_options[] =
       {
-        {"port",    required_argument, 0, 'p'},
+        {"obstacleport", required_argument, 0, 'o'},
+        {"footstepport", required_argument, 0, 'f'},
         {"verbose", no_argument,       0, 'v'},
         {"help",    no_argument,       0, 'h'},
         {0}
       };
 
       int option_index = 0;
-      c = getopt_long (argc, argv, "p:vh",
+      c = getopt_long (argc, argv, "o:f:vh",
                        long_options, &option_index);
 
       /* Detect the end of the options. */
@@ -133,9 +139,12 @@ bool parse_args(int argc, char* argv[], ParsedParams* params)
 
       switch (c)
       {
-        case 'p':
-          params->port = std::stoi(optarg);
+        case 'o':
+          params->obstaclePort = std::stoi(optarg);
           break;
+
+        case 'f':
+          params->footstepPort = std::stoi(optarg);
 
         case 'v':
           params->verbose = true;
@@ -160,7 +169,7 @@ bool parse_args(int argc, char* argv[], ParsedParams* params)
     return false;
   }
 
-  if (params->port == 0)
+  if (params->obstaclePort == 0)
   {
     std::cout << "You MUST specify a port to listen on!" << std::endl;
     return false;
@@ -289,10 +298,10 @@ void deleteObstacle(int obstacle_id)
   obstacle_id_map.erase(obstacle_id);
 }
 
-void readDataFrom(int socket_remote, const sockaddr_in& si_other, bool verbose)
+void readObstaclesFrom(int socket_remote, const sockaddr_in& si_other, bool verbose)
 {
   unsigned char buf[BUFLEN];
-  while (1)
+  while (!shuttingDown)
   {
     std::fill(buf, buf+BUFLEN, 0);
     ssize_t headerSize = sizeof(am2b_iface::VisionMessageHeader);
@@ -309,7 +318,7 @@ void readDataFrom(int socket_remote, const sockaddr_in& si_other, bool verbose)
       recvd = read(socket_remote, &buf[total_received], BUFLEN-total_received);
 
       if (recvd == 0) // connection died
-        return;
+        break;
       if (recvd == -1) // failed to read from socket
         failWithError("read() failed!");
 
@@ -320,6 +329,8 @@ void readDataFrom(int socket_remote, const sockaddr_in& si_other, bool verbose)
         std::printf("(header) Received %zu total bytes from %s:%d\n", total_received, inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port));
       }
     }
+    if (total_received < headerSize)
+      break;
 
     am2b_iface::VisionMessageHeader* header = (am2b_iface::VisionMessageHeader*)buf;
 
@@ -335,7 +346,7 @@ void readDataFrom(int socket_remote, const sockaddr_in& si_other, bool verbose)
       recvd = read(socket_remote, &buf[total_received], BUFLEN-total_received);
 
       if (recvd == 0) // connection died
-        return;
+        break;
       if (recvd == -1) // failed to read from socket
         failWithError("read() failed!");
 
@@ -345,6 +356,8 @@ void readDataFrom(int socket_remote, const sockaddr_in& si_other, bool verbose)
         std::printf("(message) Received %zu total bytes from %s:%d\n", total_received, inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port));
       }
     }
+    if (total_received < header->len + sizeof(am2b_iface::VisionMessageHeader))
+      break;
 
     switch (header->type)
     {
@@ -399,28 +412,71 @@ void readDataFrom(int socket_remote, const sockaddr_in& si_other, bool verbose)
       default:
       {
         std::cout << "UNKNOWN message type: " << header->type << "!!" << std::endl;
-
-        /// HACK: TODO: Figure out how to distinguish between clients from QNX!
-        struct_data_stepseq_ssv_log* message = (struct_data_stepseq_ssv_log*)(buf);
-        Footstep step;
-        step._foot = (Foot)(message->stance);
-        step._position.push_back(message->start_x);
-        step._position.push_back(message->start_y);
-        step._position.push_back(message->start_z);
-
-        std::cout << "Adding footstep at: " << message->start_x << ", " << message->start_y << ", " << message->start_z << std::endl;
-        renderFootstep(step);
       }
     }
 
   }
+
+  std::cout << std::endl << "-------------------------------------------------" << std::endl;
+  std::cout << "Connection to client " << inet_ntoa(si_other.sin_addr) << ":" << ntohs(si_other.sin_port) << " terminated!" << std::endl;
+  std::cout << "-------------------------------------------------" << std::endl << std::endl;
+  close(socket_remote);
 }
 
-void listen(unsigned int port, bool verbose)
+void readFootstepsFrom(int socket_remote, const sockaddr_in& si_other, bool verbose)
 {
-  struct sockaddr_in si_me, si_other;
-  int s, s_other;
-  socklen_t slen=sizeof(si_other);
+  unsigned char buf[BUFLEN];
+  while (!shuttingDown)
+  {
+    std::fill(buf, buf+BUFLEN, 0);
+    ssize_t total_received = 0;
+    ssize_t step_size = sizeof(struct_data_stepseq_ssv_log);
+    if (verbose)
+    {
+      std::cout << "Waiting for stepseq data (" << step_size << " bytes)..." << std::endl;
+    }
+
+    while (total_received < step_size)
+    {
+      int recvd = 0;
+      recvd = read(socket_remote, &buf[total_received], BUFLEN-total_received);
+
+      if (recvd == 0) // connection died
+        break;
+      if (recvd == -1) // failed to read from socket
+        failWithError("read() failed!");
+
+      total_received += recvd;
+
+      if (verbose)
+      {
+        std::printf("(footstep) Received %zu total bytes from %s:%d\n", total_received, inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port));
+      }
+    }
+    if (total_received < step_size)
+      break;
+
+    struct_data_stepseq_ssv_log* message = (struct_data_stepseq_ssv_log*)(buf);
+    Footstep step;
+    step._foot = (Foot)(message->stance);
+    step._position.push_back(message->start_x);
+    step._position.push_back(message->start_y);
+    step._position.push_back(message->start_z);
+
+    std::cout << "Adding footstep at: " << message->start_x << ", " << message->start_y << ", " << message->start_z << std::endl;
+    renderFootstep(step);
+  }
+
+  std::cout << std::endl << "-------------------------------------------------" << std::endl;
+  std::cout << "Connection to client " << inet_ntoa(si_other.sin_addr) << ":" << ntohs(si_other.sin_port) << " terminated!" << std::endl;
+  std::cout << "-------------------------------------------------" << std::endl << std::endl;
+  close(socket_remote);
+}
+
+int create_socket(unsigned int port)
+{
+  struct sockaddr_in si_me;
+  int s;
 
   // create & bind socket
   if ((s=socket(AF_INET, SOCK_STREAM, 0))==-1)
@@ -435,25 +491,75 @@ void listen(unsigned int port, bool verbose)
   if (listen(s, 5) != 0)
     failWithError("listen failed!");
 
-  while(1)
-  {
-    std::cout << "Listening for connection on port " << port << "..." << std::endl;
+  return s;
+}
 
-    s_other = accept(s, (struct sockaddr* ) &si_other, &slen);
+void listen(int sock_footsteps, int sock_obstacles, bool verbose)
+{
+  struct sockaddr_in si_other;
+  int s_other;
+  socklen_t slen=sizeof(si_other);
+
+  while(!shuttingDown)
+  {
+    std::cout << "Polling for new connections..." << std::endl;
+
+    fd_set readfds; FD_ZERO(&readfds);
+    int maxfd, fd;
+
+    maxfd = -1;
+    FD_SET(sock_footsteps, &readfds);
+    FD_SET(sock_obstacles, &readfds);
+    if (sock_footsteps > sock_obstacles)
+      maxfd = sock_footsteps;
+    else
+      maxfd = sock_obstacles;
+
+    if (select(maxfd + 1, &readfds, NULL, NULL, NULL) < 0)
+      continue;
+    fd = -1;
+    if (FD_ISSET(sock_footsteps, &readfds))
+    {
+      fd = sock_footsteps;
+    }
+    else if (FD_ISSET(sock_obstacles, &readfds))
+    {
+      fd = sock_obstacles;
+    }
+
+    if (fd == -1)
+      failWithError("Invalid socket returned from select!");
+
+    s_other = accept(fd, (struct sockaddr* ) &si_other, &slen);
     if (s_other < 0)
       failWithError("accept failed!");
 
-    std::cout << "Connected to " << inet_ntoa(si_other.sin_addr) << std::endl;
+    std::cout << std::endl << "-------------------------------------------------" << std::endl;
+    std::cout << "NEW Connection to " << inet_ntoa(si_other.sin_addr) << ":" << htons(si_other.sin_port) << std::endl;
+    std::cout << "-------------------------------------------------" << std::endl << std::endl;
 
     // receive data from new connection
-    readDataFrom(s_other, si_other, verbose);
-
-    std::cout << "Connection to client terminated!" << std::endl;
-    std::cout << "-------------------------------------" << std::endl << std::endl;;
-    close(s_other);
+    if (fd == sock_obstacles)
+    {
+      std::thread servicer(readObstaclesFrom, s_other, si_other, verbose);
+      servicer.detach();
+    }
+    else if (fd == sock_footsteps)
+    {
+      std::thread servicer(readFootstepsFrom, s_other, si_other, verbose);
+      servicer.detach();
+    }
   }
+}
 
-  close(s);
+void onSigInt(int s)
+{
+  shuttingDown = true;
+  std::cout << std::endl << "=========================" << std::endl;
+  std::cout << "Caught signal " << s << std::endl;;
+  std::cout << "Shutting Down" << std::endl;
+  std::cout << "=========================" << std::endl;
+
 }
 
 int main(int argc, char* argv[])
@@ -466,10 +572,25 @@ int main(int argc, char* argv[])
     return 0;
   }
 
+  struct sigaction sigIntHandler;
+  sigIntHandler.sa_handler = onSigInt;
+  sigemptyset(&sigIntHandler.sa_mask);
+  sigIntHandler.sa_flags = 0;
+  sigaction(SIGINT, &sigIntHandler, NULL);
+
+
   viz.Start();
 
-  listen(params.port, params.verbose);
+  int footstep_socket = create_socket(params.footstepPort);
+  int obstacle_socket = create_socket(params.obstaclePort);
 
+  listen(footstep_socket, obstacle_socket, params.verbose);
+
+  std::cout << "Closing open sockets..." << std::endl;
+  close(footstep_socket);
+  close(obstacle_socket);
+
+  std::cout << "Stopping visualizer..." << std::endl;
   viz.Stop();
   return 0;
 }

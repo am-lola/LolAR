@@ -23,12 +23,12 @@ target_link_libraries(lola_playback ${PCL_LIBRARIES} ${OpenCV_LIBS} ${am2b-arvis
 set_target_properties(lola_playback PROPERTIES COMPILE_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 
 # Lola UDP Client
-file(GLOB lola_client_src
-    src/LolaClient/main.cpp
+file(GLOB lola_listener_src
+    src/LolaListener/main.cpp
 )
-add_executable(lola_client ${lola_client_src})
-target_link_libraries(lola_client ${PCL_LIBRARIES} ${OpenCV_LIBS} ${am2b-arvis_LIBRARY})
-set_target_properties(lola_client PROPERTIES COMPILE_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+add_executable(lola_listener ${lola_listener_src})
+target_link_libraries(lola_listener ${PCL_LIBRARIES} ${OpenCV_LIBS} ${am2b-arvis_LIBRARY})
+set_target_properties(lola_listener PROPERTIES COMPILE_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 
 
 # Aruco marker tracking test

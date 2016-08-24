@@ -2,6 +2,7 @@
 #include <netinet/in.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <netdb.h>
 #include <unistd.h>
 #include <signal.h>
 #include <map>
@@ -14,78 +15,14 @@
 #include <iostream>
 
 #include <iface_msg.hpp>
+#include <iface_stepseq.hpp>
 #include <iface_vision_msg.hpp>
+
 #include <am2b-arvis/ARVisualizer.hpp>
 
 #include "Obstacle.hpp"
 #include "Footstep.hpp"
 
-// TODO: Remove this
-struct struct_data_stepseq_ssv_log
-  // :
-  //     public struct_data_ssv,
-  //     public struct_data_stepseq
-  {
-
-    // offsetof is not able to deal with inheritance
-    //
-    uint64_t stamp_gen;
-    //----------------------------------------------------------------------
-    // struct data stepseq base
-
-    float L0;
-    float L1;
-    float B;
-    float phiO;
-    float dz_clear;
-    float dz_step;
-    float dy;
-    float H;
-    float T; // step time
-
-    //----------------------------------------------------------------------
-    // struct data stepseq
-
-    // stance foot (?)
-    float start_x;
-    float start_y;
-    float start_z;
-    float start_phi_z;
-    float phi_leg_rel;
-    int32_t stance;
-
-
-    //----------------------------------------------------------------------
-    // Optimization results
-    float dz_clear_ref;
-    float dz_clear_opt;
-    float dy_ref;
-    float dy_opt;
-    float H_cog_ref;
-    float H_cog_opt;
-    float V_old_opt;
-    float V_new_opt;
-
-    //----------------------------------------------------------------------
-    // iface ssv
-    //! id of segment
-    int32_t id;
-    //! id of ssv object (not used : 0)
-    int32_t id_ssv;
-    //! together with delete event: should only ssv obj be deleted or whole segment?
-    int32_t remove_ssv_obj;
-    //! type -> 0:PSS, 1:LSS, 2:TSS
-    int32_t type;
-    //! radius
-    float radius;
-    //! Which is the coresseponding surface?
-    int32_t surface;
-    //! vectors
-    float p0[3];
-    float p1[3];
-    float p2[3];
-
-  };
 
 /**
  * A client to collect and visualize data from LOLA
@@ -105,6 +42,7 @@ struct ParsedParams
 {
   unsigned int obstaclePort = 0; // port number to listen on for obstacle data
   unsigned int footstepPort = 0; // port number to listen on for footstep data
+  std::string  footstepHost = "";// host to connect to for footstep data
   unsigned int posePort     = 0; // port number to listen on for pose data
   bool verbose = false;
 };
@@ -125,13 +63,14 @@ bool parse_args(int argc, char* argv[], ParsedParams* params)
       {
         {"obstacleport", required_argument, 0, 'o'},
         {"footstepport", required_argument, 0, 'f'},
+        {"footstephost", required_argument, 0, 'n'},
         {"verbose", no_argument,       0, 'v'},
         {"help",    no_argument,       0, 'h'},
         {0}
       };
 
       int option_index = 0;
-      c = getopt_long (argc, argv, "o:f:vh",
+      c = getopt_long (argc, argv, "o:f:n:vh",
                        long_options, &option_index);
 
       /* Detect the end of the options. */
@@ -146,6 +85,11 @@ bool parse_args(int argc, char* argv[], ParsedParams* params)
 
         case 'f':
           params->footstepPort = std::stoi(optarg);
+          break;
+
+        case 'n':
+          params->footstepHost = std::string(optarg);
+          break;
 
         case 'v':
           params->verbose = true;
@@ -182,12 +126,14 @@ bool parse_args(int argc, char* argv[], ParsedParams* params)
 void printHelp(std::string name)
 {
   std::cout << "Usage:" << std::endl;
-  std::cout << "\t" << name << " --port Port Number [--verbose] [--help]" << std::endl;
-  std::cout << "\t" << name << " -p Port Number [-v] [-h]" << std::endl;
+  std::cout << "\t" << name << " --obstacleport Port Number --footstepport Port Number --footstephost Hostname [--verbose] [--help]" << std::endl;
+  std::cout << "\t" << name << " -o Port Number -f Port Number -n Hostname [-v] [-h]" << std::endl;
   std::cout << std::endl;
-  std::cout << "\t" << "     port: UDP Port to listen on for data from the robot" << std::endl;
-  std::cout << "\t" << "  verbose: Verbose output" << std::endl;
-  std::cout << "\t" << "     help: Display this message" << std::endl;
+  std::cout << "\t" << "obstacleport: TCP Port to listen on for data from the vision system" << std::endl;
+  std::cout << "\t" << "footsetpport: TCP Port to listen on for data from the motion system" << std::endl;
+  std::cout << "\t" << "footstephost: Hostname to connect to the motion system at" << std::endl;
+  std::cout << "\t" << "     verbose: Verbose output" << std::endl;
+  std::cout << "\t" << "        help: Display this message" << std::endl;
 }
 
 Obstacle getRealObstacle(am2b_iface::ObstacleMessage* ob)
@@ -209,9 +155,9 @@ Obstacle getRealObstacle(am2b_iface::ObstacleMessage* ob)
   return real;
 }
 
-void failWithError(const char *s)
+void failWithError(const std::string s)
 {
-  perror(s);
+  perror(s.c_str());
   exit(1);
 }
 
@@ -431,20 +377,21 @@ void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool
   close(socket_remote);
 }
 
-void readFootstepsFrom(int socket_remote, const sockaddr_in& si_other, bool verbose)
+void readFootstepsFrom(int socket_remote, const std::string host_addr, bool verbose)
 {
   unsigned char buf[BUFLEN];
   while (!shuttingDown)
   {
     std::fill(buf, buf+BUFLEN, 0);
     ssize_t total_received = 0;
-    ssize_t step_size = sizeof(struct_data_stepseq_ssv_log);
+    ssize_t header_size = sizeof(am2b_iface::MsgHeader);
+    ssize_t step_size = sizeof(am2b_iface::struct_data_stepseq_ssv_log);
     if (verbose)
     {
-      std::cout << "Waiting for stepseq data (" << step_size << " bytes)..." << std::endl;
+      std::cout << "Waiting for am2b_iface::MsgHeader (" << header_size << " bytes)..." << std::endl;
     }
 
-    while (total_received < step_size)
+    while (total_received < header_size)
     {
       int recvd = 0;
       recvd = read(socket_remote, &buf[total_received], BUFLEN-total_received);
@@ -458,13 +405,38 @@ void readFootstepsFrom(int socket_remote, const sockaddr_in& si_other, bool verb
 
       if (verbose)
       {
-        std::printf("(footstep) Received %zu total bytes from %s:%d\n", total_received, inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port));
+        std::printf("(footstep header) Received %zu total bytes from %s\n", total_received, host_addr.c_str());
       }
     }
-    if (total_received < step_size)
+    if (total_received < header_size)
       break;
 
-    struct_data_stepseq_ssv_log* message = (struct_data_stepseq_ssv_log*)(buf);
+    am2b_iface::MsgHeader* header = (am2b_iface::MsgHeader*)buf;
+    while (total_received < header_size + header->len)
+    {
+      int recvd = 0;
+      recvd = read(socket_remote, &buf[total_received], BUFLEN-total_received);
+
+      if (recvd == 0) // connection died
+        break;
+      if (recvd == -1) // failed to read from socket
+        failWithError("read() failed!");
+
+      total_received += recvd;
+
+      if (verbose)
+      {
+        std::printf("(footstep data) Received %zu total bytes from %s\n", total_received, host_addr.c_str());
+      }
+    }
+
+    if (header->id != am2b_iface::STEPSEQ_AR_VIZUALIZATION)
+    {
+      std::cout << "Skipping message (type: 0x" << std::hex << header->id << std::dec << ", expecting: 0x" << std::hex << am2b_iface::STEPSEQ_AR_VIZUALIZATION << std::dec << ")" << std::endl;;
+      continue;
+    }
+
+    am2b_iface::struct_data_stepseq_ssv_log* message = (am2b_iface::struct_data_stepseq_ssv_log*)(buf + header_size);
     Footstep step;
     step._foot = (Foot)(message->stance);
     step._position.push_back(message->start_x);
@@ -476,12 +448,12 @@ void readFootstepsFrom(int socket_remote, const sockaddr_in& si_other, bool verb
   }
 
   std::cout << std::endl << "-------------------------------------------------" << std::endl;
-  std::cout << "Connection to client " << inet_ntoa(si_other.sin_addr) << ":" << ntohs(si_other.sin_port) << " terminated!" << std::endl;
+  std::cout << "Connection to server " << host_addr << " terminated!" << std::endl;
   std::cout << "-------------------------------------------------" << std::endl << std::endl;
   close(socket_remote);
 }
 
-int create_socket(unsigned int port)
+int create_server_socket(unsigned int port)
 {
   struct sockaddr_in si_me;
   int s;
@@ -502,7 +474,57 @@ int create_socket(unsigned int port)
   return s;
 }
 
-void listen(int sock_footsteps, int sock_obstacles, bool verbose)
+int create_client_socket(unsigned int port, std::string host)
+{
+  struct addrinfo hints, *res;
+  struct sockaddr_in server_addr;
+  int s;
+
+  // get server info for connection
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family   = AF_UNSPEC;
+  hints.ai_socktype = SOCK_STREAM;
+  hints.ai_protocol = IPPROTO_TCP;
+  int n = getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints, &res);
+  if (n != 0)
+    failWithError("Could not get host info for: " + host);
+
+  std::cout << "Attempting to connect to: " << host << ":" << port << std::endl;
+
+  // connect to server
+  bool connection_success = false;
+  for (auto rp = res; rp != NULL; rp = rp->ai_next) // check all addresses found by getaddrinfo
+  {
+    s = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+    if (s < 0)
+      continue; // could not open socket
+
+    // attempt to connect
+    if (connect(s, rp->ai_addr, rp->ai_addrlen) == 0)
+    {
+      std::cout << "Successfully connected to " << host << ":" << port << std::endl;
+      connection_success = true;
+      break;
+    }
+    else
+    {
+      perror("Could not connect");
+    }
+
+    close(s); // if connection failed, close socket and move on to the next address
+  }
+
+  if (!connection_success)
+  {
+    std::cout << "Connection to " << host << ":" << port << " failed! Exiting..." << std::endl;
+    exit(1);
+  }
+
+  freeaddrinfo(res);
+  return s;
+}
+
+void listen(int sock_obstacles, bool verbose)
 {
   struct sockaddr_in si_other;
   int s_other;
@@ -516,21 +538,13 @@ void listen(int sock_footsteps, int sock_obstacles, bool verbose)
     int maxfd, fd;
 
     maxfd = -1;
-    FD_SET(sock_footsteps, &readfds);
     FD_SET(sock_obstacles, &readfds);
-    if (sock_footsteps > sock_obstacles)
-      maxfd = sock_footsteps;
-    else
-      maxfd = sock_obstacles;
+    maxfd = sock_obstacles;
 
     if (select(maxfd + 1, &readfds, NULL, NULL, NULL) < 0)
       continue;
     fd = -1;
-    if (FD_ISSET(sock_footsteps, &readfds))
-    {
-      fd = sock_footsteps;
-    }
-    else if (FD_ISSET(sock_obstacles, &readfds))
+    if (FD_ISSET(sock_obstacles, &readfds))
     {
       fd = sock_obstacles;
     }
@@ -550,11 +564,6 @@ void listen(int sock_footsteps, int sock_obstacles, bool verbose)
     if (fd == sock_obstacles)
     {
       std::thread servicer(readVisionMessagesFrom, s_other, si_other, verbose);
-      servicer.detach();
-    }
-    else if (fd == sock_footsteps)
-    {
-      std::thread servicer(readFootstepsFrom, s_other, si_other, verbose);
       servicer.detach();
     }
   }
@@ -589,14 +598,27 @@ int main(int argc, char* argv[])
 
   viz.Start();
 
-  int footstep_socket = create_socket(params.footstepPort);
-  int obstacle_socket = create_socket(params.obstaclePort);
+  int footstep_socket = 0;
+  int obstacle_socket = 0;
 
-  listen(footstep_socket, obstacle_socket, params.verbose);
+  if (params.footstepPort > 0)
+  {
+    footstep_socket = create_client_socket(params.footstepPort, params.footstepHost);
+    std::thread servicer(readFootstepsFrom, footstep_socket, params.footstepHost + ":" + std::to_string(params.footstepPort), params.verbose);
+    servicer.detach();
+  }
+
+  if (params.obstaclePort > 0)
+  {
+    obstacle_socket = create_server_socket(params.obstaclePort);
+    listen(obstacle_socket, params.verbose);
+  }
 
   std::cout << "Closing open sockets..." << std::endl;
-  close(footstep_socket);
-  close(obstacle_socket);
+  if (footstep_socket > 0)
+    close(footstep_socket);
+  if (obstacle_socket > 0)
+    close(obstacle_socket);
 
   std::cout << "Stopping visualizer..." << std::endl;
   viz.Stop();

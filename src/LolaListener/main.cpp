@@ -13,6 +13,7 @@
 #include <vector>
 #include <iostream>
 
+#include <iface_msg.hpp>
 #include <iface_vision_msg.hpp>
 #include <am2b-arvis/ARVisualizer.hpp>
 
@@ -298,21 +299,22 @@ void deleteObstacle(int obstacle_id)
   obstacle_id_map.erase(obstacle_id);
 }
 
-void readObstaclesFrom(int socket_remote, const sockaddr_in& si_other, bool verbose)
+void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool verbose)
 {
   unsigned char buf[BUFLEN];
   while (!shuttingDown)
   {
     std::fill(buf, buf+BUFLEN, 0);
-    ssize_t headerSize = sizeof(am2b_iface::VisionMessageHeader);
+    ssize_t ifaceHeaderSize = sizeof(am2b_iface::MsgHeader);
+    ssize_t visionHeaderSize = sizeof(am2b_iface::VisionMessageHeader);
     ssize_t total_received = 0;
 
     if (verbose)
     {
-      std::cout << "Waiting for VisionMessageHeader (" << headerSize << " bytes)..." << std::endl;
+      std::cout << "Waiting for am2b_iface::msgHeader (" << ifaceHeaderSize << " bytes)..." << std::endl;
     }
 
-    while (total_received < headerSize)
+    while (total_received < ifaceHeaderSize)
     {
       int recvd = 0;
       recvd = read(socket_remote, &buf[total_received], BUFLEN-total_received);
@@ -326,21 +328,20 @@ void readObstaclesFrom(int socket_remote, const sockaddr_in& si_other, bool verb
 
       if (verbose)
       {
-        std::printf("(header) Received %zu total bytes from %s:%d\n", total_received, inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port));
+        std::printf("(iface header) Received %zu total bytes from %s:%d\n", total_received, inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port));
       }
     }
-    if (total_received < headerSize)
+
+    if (total_received < ifaceHeaderSize)
       break;
 
-    am2b_iface::VisionMessageHeader* header = (am2b_iface::VisionMessageHeader*)buf;
-
+    am2b_iface::MsgHeader* iface_header = (am2b_iface::MsgHeader*)buf;
     if (verbose)
     {
-      std::cout << "Received VisionMessageHeader: " << *header << std::endl;
-      std::cout << "Waiting to receive a total of " << header->len + sizeof(am2b_iface::VisionMessageHeader) << " bytes..." << std::endl;
+      std::cout << "Received am2b_iface::MsgHeader: id = 0x" << std::hex << iface_header->id << std::dec << ", len = " << iface_header->len << std::endl;
     }
 
-    while (total_received < header->len + sizeof(am2b_iface::VisionMessageHeader))
+    while (total_received < iface_header->len + sizeof(am2b_iface::MsgHeader))
     {
       int recvd = 0;
       recvd = read(socket_remote, &buf[total_received], BUFLEN-total_received);
@@ -356,14 +357,21 @@ void readObstaclesFrom(int socket_remote, const sockaddr_in& si_other, bool verb
         std::printf("(message) Received %zu total bytes from %s:%d\n", total_received, inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port));
       }
     }
-    if (total_received < header->len + sizeof(am2b_iface::VisionMessageHeader))
+    if (total_received < iface_header->len + sizeof(am2b_iface::MsgHeader))
       break;
 
-    switch (header->type)
+    am2b_iface::VisionMessageHeader* visionHeader = (am2b_iface::VisionMessageHeader*)(buf + sizeof(am2b_iface::MsgHeader));
+    if (verbose)
+    {
+      std::cout << "Received VisionMessageHeader: " << *visionHeader << std::endl;
+      std::cout << "Waiting to receive a total of " << visionHeader->len + sizeof(am2b_iface::VisionMessageHeader) << " bytes..." << std::endl;
+    }
+
+    switch (visionHeader->type)
     {
       case am2b_iface::Message_Type::Obstacle:
       {
-        am2b_iface::ObstacleMessage* message = (am2b_iface::ObstacleMessage*)(buf+sizeof(am2b_iface::VisionMessageHeader));
+        am2b_iface::ObstacleMessage* message = (am2b_iface::ObstacleMessage*)(buf+sizeof(am2b_iface::VisionMessageHeader) + sizeof(am2b_iface::MsgHeader));
         if (verbose)
         {
           std::cout << "Received obstacle: " << std::endl;
@@ -392,7 +400,7 @@ void readObstaclesFrom(int socket_remote, const sockaddr_in& si_other, bool verb
       }
       case am2b_iface::Message_Type::Surface:
       {
-        am2b_iface::SurfaceMessage* message = (am2b_iface::SurfaceMessage*)(buf + sizeof(am2b_iface::VisionMessageHeader));
+        am2b_iface::SurfaceMessage* message = (am2b_iface::SurfaceMessage*)(buf + sizeof(am2b_iface::VisionMessageHeader) + sizeof(am2b_iface::MsgHeader));
         if (verbose)
         {
           std::cout << "Received Surface:" << std::endl;
@@ -411,7 +419,7 @@ void readObstaclesFrom(int socket_remote, const sockaddr_in& si_other, bool verb
       }
       default:
       {
-        std::cout << "UNKNOWN message type: " << header->type << "!!" << std::endl;
+        std::cout << "UNKNOWN message type: " << visionHeader->type << "!!" << std::endl;
       }
     }
 
@@ -541,7 +549,7 @@ void listen(int sock_footsteps, int sock_obstacles, bool verbose)
     // receive data from new connection
     if (fd == sock_obstacles)
     {
-      std::thread servicer(readObstaclesFrom, s_other, si_other, verbose);
+      std::thread servicer(readVisionMessagesFrom, s_other, si_other, verbose);
       servicer.detach();
     }
     else if (fd == sock_footsteps)

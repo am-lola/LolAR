@@ -15,6 +15,8 @@
 #include <iostream>
 
 #include <iface_msg.hpp>
+#include <iface_sig_msg.hpp>
+#include <iface_ps.hpp>
 #include <iface_stepseq.hpp>
 #include <iface_vision_msg.hpp>
 
@@ -380,6 +382,20 @@ void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool
 void readFootstepsFrom(int socket_remote, const std::string host_addr, bool verbose)
 {
   unsigned char buf[BUFLEN];
+
+  std::cout << "Attempting to subscribe to footstep data from " << host_addr << std::endl;
+  am2b_iface::MsgId footstep_sub_id = __DOM_WPATT; //am2b_iface::STEPSEQ_AR_VIZUALIZATION;
+  am2b_iface::MsgHeader footstep_sub = { am2b_iface::ps::SIG_PS_SUBSCRIBE, sizeof(am2b_iface::MsgId)};
+ 
+  size_t sent = write(socket_remote, (unsigned char*)&footstep_sub, sizeof(footstep_sub));
+  if (sent <= 0)
+    std::cout << "Error sending subscribe request!" << std::endl;
+  sent = write(socket_remote, (unsigned char*)&footstep_sub_id, sizeof(footstep_sub_id));
+  if (sent <= 0)
+    std::cout << "Error sending footstep sub ID!" << std::endl;
+
+  std::cout << "Subscribed?" << std::endl;
+
   while (!shuttingDown)
   {
     std::fill(buf, buf+BUFLEN, 0);
@@ -432,7 +448,14 @@ void readFootstepsFrom(int socket_remote, const std::string host_addr, bool verb
 
     if (header->id != am2b_iface::STEPSEQ_AR_VIZUALIZATION)
     {
-      std::cout << "Skipping message (type: 0x" << std::hex << header->id << std::dec << ", expecting: 0x" << std::hex << am2b_iface::STEPSEQ_AR_VIZUALIZATION << std::dec << ")" << std::endl;;
+	if (header->id == am2b_iface::COM_EOK)
+	{
+	  std::cout << "Received COM_EOK! msg len: " << header->len << std::endl;
+	}
+	else
+	{
+	      std::cout << "Skipping message (type: 0x" << std::hex << header->id << std::dec << ", expecting: 0x" << std::hex << am2b_iface::STEPSEQ_AR_VIZUALIZATION << std::dec << ")" << std::endl;;
+	}
       continue;
     }
 
@@ -595,6 +618,8 @@ int main(int argc, char* argv[])
   sigIntHandler.sa_flags = 0;
   sigaction(SIGINT, &sigIntHandler, NULL);
 
+
+  std::cout << "MSG_ID_IS_GLOBAL(am2b_iface::STEPSEQ_AR_VIZUALIZATION): " << std::hex << __MSG_ID_IS_GLOBAL(am2b_iface::STEPSEQ_AR_VIZUALIZATION) << std::dec << std::endl;
 
   viz.Start();
 

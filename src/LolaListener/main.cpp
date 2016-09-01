@@ -36,6 +36,8 @@
 // maximum # of bytes expected in any incoming packet
 #define BUFLEN 2048
 ar::ARVisualizer viz;
+ar::PointCloudData pointcloud(ar::PCL_PointXYZ);
+ar::mesh_handle cloud_handle;
 bool shuttingDown = false;
 // maps lepp IDs to visualizer IDs
 std::map<int, ar::mesh_handle> obstacle_id_map;
@@ -48,6 +50,19 @@ struct ParsedParams
   unsigned int posePort     = 0; // port number to listen on for pose data
   bool verbose = false;
 };
+
+void printHelp(std::string name)
+{
+  std::cout << "Usage:" << std::endl;
+  std::cout << "\t" << name << " --obstacleport Port Number --footstepport Port Number --footstephost Hostname [--verbose] [--help]" << std::endl;
+  std::cout << "\t" << name << " -o Port Number -f Port Number -n Hostname [-v] [-h]" << std::endl;
+  std::cout << std::endl;
+  std::cout << "\t" << "obstacleport: TCP Port to listen on for data from the vision system" << std::endl;
+  std::cout << "\t" << "footsetpport: TCP Port to listen on for data from the motion system" << std::endl;
+  std::cout << "\t" << "footstephost: Hostname to connect to the motion system at" << std::endl;
+  std::cout << "\t" << "     verbose: Verbose output" << std::endl;
+  std::cout << "\t" << "        help: Display this message" << std::endl;
+}
 
 bool parse_args(int argc, char* argv[], ParsedParams* params)
 {
@@ -102,6 +117,7 @@ bool parse_args(int argc, char* argv[], ParsedParams* params)
           break;
 
         default:
+          printHelp(argv[0]);
           abort ();
       }
   }
@@ -123,19 +139,6 @@ bool parse_args(int argc, char* argv[], ParsedParams* params)
   }
 
   return true;
-}
-
-void printHelp(std::string name)
-{
-  std::cout << "Usage:" << std::endl;
-  std::cout << "\t" << name << " --obstacleport Port Number --footstepport Port Number --footstephost Hostname [--verbose] [--help]" << std::endl;
-  std::cout << "\t" << name << " -o Port Number -f Port Number -n Hostname [-v] [-h]" << std::endl;
-  std::cout << std::endl;
-  std::cout << "\t" << "obstacleport: TCP Port to listen on for data from the vision system" << std::endl;
-  std::cout << "\t" << "footsetpport: TCP Port to listen on for data from the motion system" << std::endl;
-  std::cout << "\t" << "footstephost: Hostname to connect to the motion system at" << std::endl;
-  std::cout << "\t" << "     verbose: Verbose output" << std::endl;
-  std::cout << "\t" << "        help: Display this message" << std::endl;
 }
 
 Obstacle getRealObstacle(am2b_iface::ObstacleMessage* ob)
@@ -249,10 +252,10 @@ void deleteObstacle(int obstacle_id)
 
 void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool verbose)
 {
-  unsigned char buf[BUFLEN];
+  std::vector<unsigned char> buf;
+  buf.resize(BUFLEN);
   while (!shuttingDown)
   {
-    std::fill(buf, buf+BUFLEN, 0);
     ssize_t ifaceHeaderSize = sizeof(am2b_iface::MsgHeader);
     ssize_t visionHeaderSize = sizeof(am2b_iface::VisionMessageHeader);
     ssize_t total_received = 0;
@@ -265,7 +268,7 @@ void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool
     while (total_received < ifaceHeaderSize)
     {
       int recvd = 0;
-      recvd = read(socket_remote, &buf[total_received], BUFLEN-total_received);
+      recvd = read(socket_remote, &buf[total_received], buf.size()-total_received);
 
       if (recvd == 0) // connection died
         break;
@@ -283,16 +286,25 @@ void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool
     if (total_received < ifaceHeaderSize)
       break;
 
-    am2b_iface::MsgHeader* iface_header = (am2b_iface::MsgHeader*)buf;
+    am2b_iface::MsgHeader* iface_header = (am2b_iface::MsgHeader*)buf.data();
     if (verbose)
     {
       std::cout << "Received am2b_iface::MsgHeader: id = 0x" << std::hex << iface_header->id << std::dec << ", len = " << iface_header->len << std::endl;
     }
 
+    if (buf.size() < iface_header->len + sizeof(am2b_iface::MsgHeader))
+    {
+      if (verbose)
+      {
+        std::cout << "Resizing receive buffer to " << iface_header->len + sizeof(am2b_iface::MsgHeader) << " bytes" << std::endl;
+      }
+      buf.resize(iface_header->len + sizeof(am2b_iface::MsgHeader));
+      iface_header = (am2b_iface::MsgHeader*)buf.data(); // update pointer after allocation
+    }
     while (total_received < iface_header->len + sizeof(am2b_iface::MsgHeader))
     {
       int recvd = 0;
-      recvd = read(socket_remote, &buf[total_received], BUFLEN-total_received);
+      recvd = read(socket_remote, &buf[total_received], buf.size()-total_received);
 
       if (recvd == 0) // connection died
         break;
@@ -308,7 +320,7 @@ void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool
     if (total_received < iface_header->len + sizeof(am2b_iface::MsgHeader))
       break;
 
-    am2b_iface::VisionMessageHeader* visionHeader = (am2b_iface::VisionMessageHeader*)(buf + sizeof(am2b_iface::MsgHeader));
+    am2b_iface::VisionMessageHeader* visionHeader = (am2b_iface::VisionMessageHeader*)(buf.data() + sizeof(am2b_iface::MsgHeader));
     if (verbose)
     {
       std::cout << "Received VisionMessageHeader: " << *visionHeader << std::endl;
@@ -319,7 +331,7 @@ void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool
     {
       case am2b_iface::Message_Type::Obstacle:
       {
-        am2b_iface::ObstacleMessage* message = (am2b_iface::ObstacleMessage*)(buf+sizeof(am2b_iface::VisionMessageHeader) + sizeof(am2b_iface::MsgHeader));
+        am2b_iface::ObstacleMessage* message = (am2b_iface::ObstacleMessage*)(buf.data()+sizeof(am2b_iface::VisionMessageHeader) + sizeof(am2b_iface::MsgHeader));
         if (verbose)
         {
           std::cout << "Received obstacle: " << std::endl;
@@ -348,7 +360,7 @@ void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool
       }
       case am2b_iface::Message_Type::Surface:
       {
-        am2b_iface::SurfaceMessage* message = (am2b_iface::SurfaceMessage*)(buf + sizeof(am2b_iface::VisionMessageHeader) + sizeof(am2b_iface::MsgHeader));
+        am2b_iface::SurfaceMessage* message = (am2b_iface::SurfaceMessage*)(buf.data() + sizeof(am2b_iface::VisionMessageHeader) + sizeof(am2b_iface::MsgHeader));
         if (verbose)
         {
           std::cout << "Received Surface:" << std::endl;
@@ -363,6 +375,34 @@ void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool
             std::cout << "]" << std::endl;
           }
         }
+        break;
+      }
+      case am2b_iface::Message_Type::RGB_Image:
+      {
+        am2b_iface::RGBMessage* message = (am2b_iface::RGBMessage*)(buf.data() + sizeof(am2b_iface::VisionMessageHeader) + sizeof(am2b_iface::MsgHeader));
+        message->pixels = (unsigned char*)(message + sizeof(am2b_iface::RGBMessage)); // fix pointer
+        if (verbose)
+        {
+          std::cout << "Received RGB Image:" << std::endl;
+          std::cout << "\tWidth:  " << message->width << std::endl;
+          std::cout << "\tHeight: " << message->height << std::endl;
+        }
+        viz.NotifyNewVideoFrame(message->width, message->height, message->pixels);
+        break;
+      }
+      case am2b_iface::Message_Type::PointCloud:
+      {
+        am2b_iface::PointCloudMessage* message = (am2b_iface::PointCloudMessage*)(buf.data() + sizeof(am2b_iface::VisionMessageHeader) + sizeof(am2b_iface::MsgHeader));
+        message->data = (unsigned char*)(message + sizeof(am2b_iface::PointCloudMessage));
+        if (verbose)
+        {
+          std::cout << "Received PointCloud" << std::endl;
+          std::cout << "\t# of points:    " << message->count << std::endl;
+          std::cout << "\tsize of points: " << message->format << " bytes" << std::endl;
+        }
+        pointcloud.pointData = reinterpret_cast<const void*>(message->data);
+        pointcloud.numPoints = message->count;
+        viz.Update(cloud_handle, pointcloud);
         break;
       }
       default:
@@ -622,7 +662,7 @@ int main(int argc, char* argv[])
   std::cout << "MSG_ID_IS_GLOBAL(am2b_iface::STEPSEQ_AR_VIZUALIZATION): " << std::hex << __MSG_ID_IS_GLOBAL(am2b_iface::STEPSEQ_AR_VIZUALIZATION) << std::dec << std::endl;
 
   viz.Start();
-
+  cloud_handle = viz.Add(pointcloud);
   int footstep_socket = 0;
   int obstacle_socket = 0;
 

@@ -201,6 +201,33 @@ void deleteObstacle(int obstacle_id)
   obstacle_id_map.erase(obstacle_id);
 }
 
+void renderSurface(double* vertices, unsigned int count, unsigned int id)
+{
+  ar::Polygon new_surface = {
+    vertices,
+    count,
+    ar::Color(0, 1, 0)
+  };
+  ar::mesh_handle new_id = viz.Add(new_surface);
+  surface_id_map.insert(std::pair<int, ar::mesh_handle>(id, new_id));
+}
+
+void updateSurface(double* vertices, unsigned int count, unsigned int id)
+{
+  ar::Polygon new_surface = {
+    vertices,
+    count,
+    ar::Color(0, 1, 0)
+  };
+  viz.Update(surface_id_map[id], new_surface);
+}
+
+void deleteSurface(int surface_id)
+{
+  viz.Remove(surface_id_map[surface_id]);
+  surface_id_map.erase(surface_id);
+}
+
 void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool verbose)
 {
   std::vector<unsigned char> buf;
@@ -325,6 +352,19 @@ void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool
             std::cout << message->vertices[i*3] << ", " << message->vertices[i*3 + 1] << ", " << message->vertices[i*3 + 2];
             std::cout << "]" << std::endl;
           }
+        }
+
+        if (message->action == am2b_iface::SET_SURFACE)
+        {
+          renderSurface(message->vertices, 8, message->id);
+        }
+        else if (message->action == am2b_iface::MODIFY_SSV)
+        {
+          updateSurface(message->vertices, 8, message->id);
+        }
+        else if (message->action == am2b_iface::REMOVE_SURFACE)
+        {
+          deleteSurface(message->id);
         }
         break;
       }

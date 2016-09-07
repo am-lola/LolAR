@@ -38,7 +38,7 @@
 // maximum # of bytes expected in any incoming packet
 #define BUFLEN 2048
 ar::ARVisualizer viz;
-ar::PointCloudData pointcloud(ar::PCL_PointXYZ);
+ar::PointCloudData pointcloud(ar::PCL_PointXYZRGBA);
 ar::mesh_handle cloud_handle;
 bool shuttingDown = false;
 // maps lepp IDs to visualizer IDs
@@ -368,15 +368,22 @@ void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool
 
         if (message->action == am2b_iface::SET_SURFACE)
         {
+          std::cout << "Adding new surface: " << message->id << std::endl;
           renderSurface(message->vertices, 8, message->id);
         }
-        else if (message->action == am2b_iface::MODIFY_SSV)
+        else if (message->action == am2b_iface::MODIFY_SURFACE)
         {
+          std::cout << "Updating surface: " << message->id << std::endl;
           updateSurface(message->vertices, 8, message->id);
         }
         else if (message->action == am2b_iface::REMOVE_SURFACE)
         {
+          std::cout << "Deleting surface: " << message->id << std::endl;
           deleteSurface(message->id);
+        }
+        else
+        {
+          std::cout << "Unknown surface operation: 0x" << std::hex << message->action << std::dec << std::endl;
         }
         break;
       }
@@ -768,11 +775,18 @@ int main(int argc, char* argv[])
   sigaction(SIGINT, &sigIntHandler, NULL);
 
   double cam_root_position[3] = {0, 0, 0};
-  double cam_root_forward[3]  = {1, 0, 0};
-  double cam_root_up[3]       = {0, 0, 1};
+  double cam_root_forward[3]  = {0, 0, 1};
+  double cam_root_up[3]       = {0,-1, 0};
+
+  double camera_matrix[3][3] = {
+    5.2921508098293293e+02, 0.0, 3.2894272028759258e+02,
+    0.0, 5.2556393630057437e+02, 2.6748068171871557e+02,
+    0.0, 0.0, 1.0
+  };
 
   viz.Start();
   viz.SetCameraPose(cam_root_position, cam_root_forward, cam_root_up);
+  viz.SetCameraIntrinsics(camera_matrix);
   cloud_handle = viz.Add(pointcloud);
   int footstep_socket = 0;
   int obstacle_socket = 0;

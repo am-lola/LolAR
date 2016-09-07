@@ -17,6 +17,7 @@
 #include <iface_sig_msg.hpp>
 #include <iface_ps.hpp>
 #include <iface_stepseq.hpp>
+#include <iface_vis.h>
 #include <iface_vision_msg.hpp>
 
 #include <am2b-arvis/ARVisualizer.hpp>
@@ -42,6 +43,7 @@ ar::mesh_handle cloud_handle;
 bool shuttingDown = false;
 // maps lepp IDs to visualizer IDs
 std::map<int, ar::mesh_handle> obstacle_id_map;
+std::map<int, ar::mesh_handle> surface_id_map;
 
 struct ParsedParams
 {
@@ -54,6 +56,12 @@ struct ParsedParams
 
 bool parse_args(int argc, char* argv[], ParsedParams* params)
 {
+  if (argc <= 1)
+  {
+    std::cerr << "Error: You must specify at least one data source!" << std::endl;
+    return false;
+  }
+
   try {
     TCLAP::CmdLine cmd("Lola Listener", ' ', "0.1");
     TCLAP::ValueArg<unsigned int> obstaclePort("o", "obstacleport",
@@ -61,7 +69,7 @@ bool parse_args(int argc, char* argv[], ParsedParams* params)
                                                false, 0, "unsigned int");
     TCLAP::ValueArg<std::string>  footstepHost("f", "footstephost",
                                                "Hostname to connect to for footstep data, in the form: ' ip:port '",
-                                               false, "hostname:port  or  ip:port");
+                                               false, "", "hostname:port  or  ip:port");
     TCLAP::ValueArg<unsigned int> posePort("p", "poseport",
                                                "Port to listen on for pose data",
                                                false, 0, "unsigned int");
@@ -84,7 +92,7 @@ bool parse_args(int argc, char* argv[], ParsedParams* params)
       params->footstepPort = std::stoul(footstepHost.getValue().substr(delimpos+1));
     }
 
-  } catch (TCLAP::ArgException &e)
+  } catch (TCLAP::ArgException &e) {
     std::cerr << "Error in argument " << e.argId() << ": " << e.error() << std::endl;
     return false;
   }
@@ -201,24 +209,22 @@ void deleteObstacle(int obstacle_id)
   obstacle_id_map.erase(obstacle_id);
 }
 
-void renderSurface(double* vertices, unsigned int count, unsigned int id)
+void renderSurface(float* vertices, unsigned int count, unsigned int id)
 {
-  ar::Polygon new_surface = {
-    vertices,
-    count,
-    ar::Color(0, 1, 0)
-  };
+  ar::Polygon new_surface(0, 0); /// HACK: work around ARVisualizer api...
+  new_surface.points = vertices;
+  new_surface.numPoints = count;
+  new_surface.color = ar::Color(0, 1, 0);
   ar::mesh_handle new_id = viz.Add(new_surface);
   surface_id_map.insert(std::pair<int, ar::mesh_handle>(id, new_id));
 }
 
-void updateSurface(double* vertices, unsigned int count, unsigned int id)
+void updateSurface(float* vertices, unsigned int count, unsigned int id)
 {
-  ar::Polygon new_surface = {
-    vertices,
-    count,
-    ar::Color(0, 1, 0)
-  };
+  ar::Polygon new_surface(0, 0); /// HACK: work around ARVisualizer api...
+  new_surface.points = vertices;
+  new_surface.numPoints = count;
+  new_surface.color = ar::Color(0, 1, 0);
   viz.Update(surface_id_map[id], new_surface);
 }
 
@@ -292,11 +298,17 @@ void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool
       total_received += recvd;
       if (verbose)
       {
-        std::printf("(message) Received %zu total bytes from %s:%d\n", total_received, inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port));
+        std::printf("(message) Received %zu / %zu total bytes from %s:%d\n", total_received, iface_header->len + sizeof(am2b_iface::MsgHeader), inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port));
       }
     }
     if (total_received < iface_header->len + sizeof(am2b_iface::MsgHeader))
       break;
+
+    if (iface_header->id != am2b_iface::VISION_MESSAGE)
+    {
+      std::cout << "Received non-vision message type '0x" << std::hex << iface_header->id << std::dec << "' on obstacle port. Discarding it..." << std::endl;
+      continue;
+    }
 
     am2b_iface::VisionMessageHeader* visionHeader = (am2b_iface::VisionMessageHeader*)(buf.data() + sizeof(am2b_iface::MsgHeader));
     if (verbose)
@@ -685,7 +697,7 @@ void udp_pose_listen(socklen_t s, bool verbose)
   sockaddr_in si_other;
   unsigned int slen = sizeof(sockaddr);
 
-  while(1)
+  while(!shuttingDown)
   {
     // clear buf
     memset(buf, 0, BUFLEN-1);
@@ -697,26 +709,35 @@ void udp_pose_listen(socklen_t s, bool verbose)
       std::cout << "Received " << nrecvd << " bytes from: " << inet_ntoa(si_other.sin_addr) << std::endl;
 
     HR_Pose_Red* new_pose = (HR_Pose_Red*)buf;
-    std::cout << "New Pose:" << std::endl;
-    std::cout << "\tVersion: " << new_pose->version << std::endl;
-    std::cout << "\tTick Counter: " << new_pose->tick_counter << std::endl;
-    std::cout << "\tStance: " << (unsigned int)(new_pose->stance) << std::endl;
-    std::cout << "\tStamp:  " << new_pose->stamp << std::endl;
-    std::cout << "\tt_wr_cl:" << std::endl;
-    std::cout << "\t\t"; printvec(new_pose->t_wr_cl, 3, std::cout); std::cout << std::endl;
-    std::cout << "\tR_wr_cl:" << std::endl;
-    printmat(new_pose->R_wr_cl, 3, 3, "\t\t", std::cout);
-    std::cout << "\tt_stance_odo: " << std::endl;;
-    std::cout << "\t\t"; printvec(new_pose->t_stance_odo, 3, std::cout); std::cout << std::endl;
-    std::cout << "\tphi_z_odo: " << new_pose->phi_z_odo << std::endl;
-    std::cout << "------------------------------------------" << std::endl;
 
+    if (verbose)
+    {
+      std::cout << "New Pose:" << std::endl;
+      std::cout << "\tVersion: " << new_pose->version << std::endl;
+      std::cout << "\tTick Counter: " << new_pose->tick_counter << std::endl;
+      std::cout << "\tStance: " << (unsigned int)(new_pose->stance) << std::endl;
+      std::cout << "\tStamp:  " << new_pose->stamp << std::endl;
+      std::cout << "\tt_wr_cl:" << std::endl;
+      std::cout << "\t\t"; printvec(new_pose->t_wr_cl, 3, std::cout); std::cout << std::endl;
+      std::cout << "\tR_wr_cl:" << std::endl;
+      printmat(new_pose->R_wr_cl, 3, 3, "\t\t", std::cout);
+      std::cout << "\tt_stance_odo: " << std::endl;;
+      std::cout << "\t\t"; printvec(new_pose->t_stance_odo, 3, std::cout); std::cout << std::endl;
+      std::cout << "\tphi_z_odo: " << new_pose->phi_z_odo << std::endl;
+      std::cout << "------------------------------------------" << std::endl;
+    }
+
+    double cam_position[3] = {
+                  new_pose->t_wr_cl[0],
+                  new_pose->t_wr_cl[1],
+                  new_pose->t_wr_cl[2]
+    };
     double cam_orienation[3][3] = {
                   {new_pose->R_wr_cl[0], new_pose->R_wr_cl[1], new_pose->R_wr_cl[2]},
                   {new_pose->R_wr_cl[3], new_pose->R_wr_cl[4], new_pose->R_wr_cl[5]},
                   {new_pose->R_wr_cl[6], new_pose->R_wr_cl[7], new_pose->R_wr_cl[8]}
     };
-    viz.SetCameraPose(new_pose->t_wr_cl, cam_orienation);
+    viz.SetCameraPose(cam_position, cam_orienation);
 
   }
 }
@@ -746,7 +767,12 @@ int main(int argc, char* argv[])
   sigIntHandler.sa_flags = 0;
   sigaction(SIGINT, &sigIntHandler, NULL);
 
+  double cam_root_position[3] = {0, 0, 0};
+  double cam_root_forward[3]  = {1, 0, 0};
+  double cam_root_up[3]       = {0, 0, 1};
+
   viz.Start();
+  viz.SetCameraPose(cam_root_position, cam_root_forward, cam_root_up);
   cloud_handle = viz.Add(pointcloud);
   int footstep_socket = 0;
   int obstacle_socket = 0;
@@ -771,6 +797,9 @@ int main(int argc, char* argv[])
     obstacle_socket = create_server_socket(params.obstaclePort);
     listen(obstacle_socket, params.verbose);
   }
+
+  while(!shuttingDown)
+    std::this_thread::sleep_for(std::chrono::seconds(1));
 
   std::cout << "Closing open sockets..." << std::endl;
   if (footstep_socket > 0)

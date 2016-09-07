@@ -12,6 +12,7 @@ add_definitions(${PCL_DEFINITIONS})
 
 include_directories("src")
 include_directories("src/iface/iface")
+include_directories("extern/tclap/include")
 
 # Lola log player
 file(GLOB lola_playback_src

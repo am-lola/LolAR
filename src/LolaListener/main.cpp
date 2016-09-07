@@ -7,7 +7,6 @@
 #include <signal.h>
 #include <map>
 
-#include <getopt.h>
 #include <algorithm>
 #include <thread>
 #include <string>
@@ -21,6 +20,8 @@
 #include <iface_vision_msg.hpp>
 
 #include <am2b-arvis/ARVisualizer.hpp>
+
+#include <tclap/CmdLine.h>
 
 #include "Obstacle.hpp"
 #include "Footstep.hpp"
@@ -51,90 +52,40 @@ struct ParsedParams
   bool verbose = false;
 };
 
-void printHelp(std::string name)
-{
-  std::cout << "Usage:" << std::endl;
-  std::cout << "\t" << name << " --obstacleport Port Number --footstepport Port Number --footstephost Hostname [--verbose] [--help]" << std::endl;
-  std::cout << "\t" << name << " -o Port Number -f Port Number -n Hostname [-v] [-h]" << std::endl;
-  std::cout << std::endl;
-  std::cout << "\t" << "obstacleport: TCP Port to listen on for data from the vision system" << std::endl;
-  std::cout << "\t" << "footsetpport: TCP Port to listen on for data from the motion system" << std::endl;
-  std::cout << "\t" << "footstephost: Hostname to connect to the motion system at" << std::endl;
-  std::cout << "\t" << "     verbose: Verbose output" << std::endl;
-  std::cout << "\t" << "        help: Display this message" << std::endl;
-}
-
 bool parse_args(int argc, char* argv[], ParsedParams* params)
 {
-  int c;
+  try {
+    TCLAP::CmdLine cmd("Lola Listener", ' ', "0.1");
+    TCLAP::ValueArg<unsigned int> obstaclePort("o", "obstacleport",
+                                               "Port to listen on for obstacle data",
+                                               false, 0, "unsigned int");
+    TCLAP::ValueArg<std::string>  footstepHost("f", "footstephost",
+                                               "Hostname to connect to for footstep data, in the form: ' ip:port '",
+                                               false, "hostname:port  or  ip:port");
+    TCLAP::ValueArg<unsigned int> posePort("p", "poseport",
+                                               "Port to listen on for pose data",
+                                               false, 0, "unsigned int");
+    TCLAP::SwitchArg verbose("v", "verbose",
+                             "Verbose output", cmd, false);
+    cmd.add(obstaclePort);
+    cmd.add(footstepHost);
+    cmd.add(posePort);
 
-  if (argc < 2)
-  {
-    std::cout << "ERROR: You must provide at least one argument!" << std::endl;
-    return false;
-  }
+    cmd.parse(argc, argv);
 
-  while (1)
-  {
-    static struct option long_options[] =
-      {
-        {"obstacleport", required_argument, 0, 'o'},
-        {"footstepport", required_argument, 0, 'f'},
-        {"footstephost", required_argument, 0, 'n'},
-        {"verbose", no_argument,       0, 'v'},
-        {"help",    no_argument,       0, 'h'},
-        {0}
-      };
+    params->obstaclePort = obstaclePort.getValue();
+    params->posePort = posePort.getValue();
+    params->verbose = verbose.getValue();
 
-      int option_index = 0;
-      c = getopt_long (argc, argv, "o:f:n:vh",
-                       long_options, &option_index);
+    size_t delimpos;
+    if ( (delimpos = footstepHost.getValue().find_last_of(":")) != std::string::npos )
+    {
+      params->footstepHost = footstepHost.getValue().substr(0, delimpos);
+      params->footstepPort = std::stoul(footstepHost.getValue().substr(delimpos+1));
+    }
 
-      /* Detect the end of the options. */
-      if (c == -1)
-        break;
-
-      switch (c)
-      {
-        case 'o':
-          params->obstaclePort = std::stoi(optarg);
-          break;
-
-        case 'f':
-          params->footstepPort = std::stoi(optarg);
-          break;
-
-        case 'n':
-          params->footstepHost = std::string(optarg);
-          break;
-
-        case 'v':
-          params->verbose = true;
-          break;
-
-        case 'h':
-          return false;
-          break;
-
-        default:
-          printHelp(argv[0]);
-          abort ();
-      }
-  }
-
-  /* Print any remaining command line arguments (not options). */
-  if (optind < argc)
-  {
-    std::cout << "Unrecognized arguments: ";
-    while (optind < argc)
-      std::cout << argv[optind++] << ", ";
-    std::cout << std::endl;
-    return false;
-  }
-
-  if (params->obstaclePort == 0)
-  {
-    std::cout << "You MUST specify a port to listen on!" << std::endl;
+  } catch (TCLAP::ArgException &e)
+    std::cerr << "Error in argument " << e.argId() << ": " << e.error() << std::endl;
     return false;
   }
 
@@ -587,6 +538,32 @@ int create_client_socket(unsigned int port, std::string host)
   return s;
 }
 
+socklen_t create_udp_socket(unsigned int port)
+{
+  struct sockaddr_in si_me;
+  socklen_t s;
+  int broadcast = 1;
+  int reuseport = 1;
+
+  // create & bind socket
+  if ((s=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
+    failWithError("Creating UDP socket failed!");
+
+  if (setsockopt(s, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast)) != 0)
+    failWithError("Setting broadcast flag on UDP socket failed!");
+
+  if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &reuseport, sizeof(reuseport)) != 0)
+    failWithError("Setting Reuse Addr flag on UDP socket failed!");
+
+  si_me.sin_family = AF_INET;
+  si_me.sin_port = htons(port);
+  si_me.sin_addr.s_addr = htonl(INADDR_ANY);
+  if (bind(s, (sockaddr*)&si_me, sizeof(si_me)) == -1)
+    failWithError("Binding UDP socket failed!");
+
+  return s;
+}
+
 void listen(int sock_obstacles, bool verbose)
 {
   struct sockaddr_in si_other;
@@ -632,6 +609,78 @@ void listen(int sock_obstacles, bool verbose)
   }
 }
 
+void printvec(float* vec, unsigned int len, std::ostream& out)
+{
+  out << "[";
+  for (unsigned int i = 0; i < len; i++)
+  {
+    out << vec[i];
+
+    if (i < len-1)
+      out << ", ";
+  }
+  out << "]";
+}
+
+void printmat(float* mat, unsigned int width, unsigned int height, std::string line_prefix, std::ostream& out)
+{
+  
+  for (unsigned int i = 0; i < width; i++)
+  {
+    out << line_prefix << "[";
+    for (unsigned int j = 0; j < height; j++)
+    {
+      out << mat[width*i+j];
+      if (j < height-1)
+        out << ", ";
+    }
+    out << "]";
+    out << std::endl;
+  }
+}
+
+void udp_pose_listen(socklen_t s, bool verbose)
+{
+  char buf[BUFLEN];
+  sockaddr_in si_other;
+  unsigned int slen = sizeof(sockaddr);
+
+  while(1)
+  {
+    // clear buf
+    memset(buf, 0, BUFLEN-1);
+
+    // wait for message
+    int nrecvd = recvfrom(s, buf, BUFLEN-1, 0, (sockaddr*)&si_other, &slen);
+
+    if (verbose)
+      std::cout << "Received " << nrecvd << " bytes from: " << inet_ntoa(si_other.sin_addr) << std::endl;
+
+    HR_Pose_Red* new_pose = (HR_Pose_Red*)buf;
+    std::cout << "New Pose:" << std::endl;
+    std::cout << "\tVersion: " << new_pose->version << std::endl;
+    std::cout << "\tTick Counter: " << new_pose->tick_counter << std::endl;
+    std::cout << "\tStance: " << (unsigned int)(new_pose->stance) << std::endl;
+    std::cout << "\tStamp:  " << new_pose->stamp << std::endl;
+    std::cout << "\tt_wr_cl:" << std::endl;
+    std::cout << "\t\t"; printvec(new_pose->t_wr_cl, 3, std::cout); std::cout << std::endl;
+    std::cout << "\tR_wr_cl:" << std::endl;
+    printmat(new_pose->R_wr_cl, 3, 3, "\t\t", std::cout);
+    std::cout << "\tt_stance_odo: " << std::endl;;
+    std::cout << "\t\t"; printvec(new_pose->t_stance_odo, 3, std::cout); std::cout << std::endl;
+    std::cout << "\tphi_z_odo: " << new_pose->phi_z_odo << std::endl;
+    std::cout << "------------------------------------------" << std::endl;
+
+    double cam_orienation[3][3] = {
+                  {new_pose->R_wr_cl[0], new_pose->R_wr_cl[1], new_pose->R_wr_cl[2]},
+                  {new_pose->R_wr_cl[3], new_pose->R_wr_cl[4], new_pose->R_wr_cl[5]},
+                  {new_pose->R_wr_cl[6], new_pose->R_wr_cl[7], new_pose->R_wr_cl[8]}
+    };
+    viz.SetCameraPose(new_pose->t_wr_cl, cam_orienation);
+
+  }
+}
+
 void onSigInt(int s)
 {
   shuttingDown = true;
@@ -648,7 +697,6 @@ int main(int argc, char* argv[])
 
   if (!parse_args(argc, argv, &params))
   {
-    printHelp(argv[0]);
     return 0;
   }
 
@@ -658,13 +706,18 @@ int main(int argc, char* argv[])
   sigIntHandler.sa_flags = 0;
   sigaction(SIGINT, &sigIntHandler, NULL);
 
-
-  std::cout << "MSG_ID_IS_GLOBAL(am2b_iface::STEPSEQ_AR_VIZUALIZATION): " << std::hex << __MSG_ID_IS_GLOBAL(am2b_iface::STEPSEQ_AR_VIZUALIZATION) << std::dec << std::endl;
-
   viz.Start();
   cloud_handle = viz.Add(pointcloud);
   int footstep_socket = 0;
   int obstacle_socket = 0;
+  int pose_socket     = 0;
+
+  if (params.posePort > 0)
+  {
+    pose_socket = create_udp_socket(params.posePort);
+    std::thread servicer(udp_pose_listen, pose_socket, params.verbose);
+    servicer.detach();
+  }
 
   if (params.footstepPort > 0)
   {
@@ -684,6 +737,8 @@ int main(int argc, char* argv[])
     close(footstep_socket);
   if (obstacle_socket > 0)
     close(obstacle_socket);
+  if (pose_socket > 0)
+    close(pose_socket);
 
   std::cout << "Stopping visualizer..." << std::endl;
   viz.Stop();

@@ -234,25 +234,32 @@ void deleteSurface(int surface_id)
   surface_id_map.erase(surface_id);
 }
 
+void process(am2b_iface::VisionMessage* message)
+{
+
+}
+
 void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool verbose)
 {
   std::vector<unsigned char> buf;
   buf.resize(BUFLEN);
+
   while (!shuttingDown)
   {
     ssize_t ifaceHeaderSize = sizeof(am2b_iface::MsgHeader);
     ssize_t visionHeaderSize = sizeof(am2b_iface::VisionMessageHeader);
     ssize_t total_received = 0;
+    ssize_t total_expected = sizeof(ifaceHeaderSize);
 
     if (verbose)
     {
       std::cout << "Waiting for am2b_iface::msgHeader (" << ifaceHeaderSize << " bytes)..." << std::endl;
     }
 
-    while (total_received < ifaceHeaderSize)
+    while (total_received < total_expected)
     {
       int recvd = 0;
-      recvd = read(socket_remote, &buf[total_received], buf.size()-total_received);
+      recvd = read(socket_remote, &buf[total_received], total_expected - total_received);
 
       if (recvd == 0) // connection died
         break;
@@ -263,7 +270,7 @@ void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool
 
       if (verbose)
       {
-        std::printf("(iface header) Received %zu total bytes from %s:%d\n", total_received, inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port));
+        std::printf("(iface header) Received %zu / %zu total bytes from %s:%d\n", total_received, total_expected, inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port));
       }
     }
 
@@ -276,19 +283,20 @@ void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool
       std::cout << "Received am2b_iface::MsgHeader: id = 0x" << std::hex << iface_header->id << std::dec << ", len = " << iface_header->len << std::endl;
     }
 
-    if (buf.size() < iface_header->len + sizeof(am2b_iface::MsgHeader))
+    total_expected += iface_header->len;
+    if (buf.size() < total_expected)
     {
       if (verbose)
       {
-        std::cout << "Resizing receive buffer to " << iface_header->len + sizeof(am2b_iface::MsgHeader) << " bytes" << std::endl;
+        std::cout << "Resizing receive buffer to " << total_expected << " bytes" << std::endl;
       }
-      buf.resize(iface_header->len + sizeof(am2b_iface::MsgHeader));
+      buf.resize(total_expected);
       iface_header = (am2b_iface::MsgHeader*)buf.data(); // update pointer after allocation
     }
-    while (total_received < iface_header->len + sizeof(am2b_iface::MsgHeader))
+    while (total_received < total_expected)
     {
       int recvd = 0;
-      recvd = read(socket_remote, &buf[total_received], buf.size()-total_received);
+      recvd = read(socket_remote, &buf[total_received], total_expected-total_received);
 
       if (recvd == 0) // connection died
         break;
@@ -298,11 +306,23 @@ void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool
       total_received += recvd;
       if (verbose)
       {
-        std::printf("(message) Received %zu / %zu total bytes from %s:%d\n", total_received, iface_header->len + sizeof(am2b_iface::MsgHeader), inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port));
+        std::printf("(message) Received %zu / %zu total bytes from %s:%d\n", total_received, total_expected, inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port));
       }
     }
-    if (total_received < iface_header->len + sizeof(am2b_iface::MsgHeader))
+    if (total_received < total_expected)
       break;
+
+    if (total_expected != total_received)
+    {
+      std::cout << "TOTAL RECVD: " << total_received << " : EXPECTED: " << sizeof(am2b_iface::MsgHeader) + iface_header->len << std::endl;
+
+      break;
+    }
+    else
+    {
+      total_received = 0;
+    }
+    
 
     if (iface_header->id != am2b_iface::VISION_MESSAGE)
     {
@@ -321,7 +341,7 @@ void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool
     {
       case am2b_iface::Message_Type::Obstacle:
       {
-        am2b_iface::ObstacleMessage* message = (am2b_iface::ObstacleMessage*)(buf.data()+sizeof(am2b_iface::VisionMessageHeader) + sizeof(am2b_iface::MsgHeader));
+        am2b_iface::ObstacleMessage* message = (am2b_iface::ObstacleMessage*)(buf.data() + sizeof(am2b_iface::VisionMessageHeader) + sizeof(am2b_iface::MsgHeader));
         if (verbose)
         {
           std::cout << "Received obstacle: " << std::endl;
@@ -390,7 +410,7 @@ void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool
       case am2b_iface::Message_Type::RGB_Image:
       {
         am2b_iface::RGBMessage* message = (am2b_iface::RGBMessage*)(buf.data() + sizeof(am2b_iface::VisionMessageHeader) + sizeof(am2b_iface::MsgHeader));
-        message->pixels = (unsigned char*)(message + sizeof(am2b_iface::RGBMessage)); // fix pointer
+        message->pixels = (unsigned char*)((char*)message + sizeof(am2b_iface::RGBMessage)); // fix pointer
         if (verbose)
         {
           std::cout << "Received RGB Image:" << std::endl;
@@ -403,7 +423,7 @@ void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool
       case am2b_iface::Message_Type::PointCloud:
       {
         am2b_iface::PointCloudMessage* message = (am2b_iface::PointCloudMessage*)(buf.data() + sizeof(am2b_iface::VisionMessageHeader) + sizeof(am2b_iface::MsgHeader));
-        message->data = (unsigned char*)(message + sizeof(am2b_iface::PointCloudMessage));
+        message->data = (unsigned char*)((char*)message + sizeof(am2b_iface::PointCloudMessage));
         if (verbose)
         {
           std::cout << "Received PointCloud" << std::endl;
@@ -784,7 +804,7 @@ int main(int argc, char* argv[])
     0.0, 0.0, 1.0
   };
 
-  viz.Start();
+  viz.Start("Lola Listener");
   viz.SetCameraPose(cam_root_position, cam_root_forward, cam_root_up);
   viz.SetCameraIntrinsics(camera_matrix);
   cloud_handle = viz.Add(pointcloud);

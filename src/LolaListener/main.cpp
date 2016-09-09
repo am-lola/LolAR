@@ -38,7 +38,7 @@
 // maximum # of bytes expected in any incoming packet
 #define BUFLEN 2048
 ar::ARVisualizer viz;
-ar::PointCloudData pointcloud(ar::PCL_PointXYZRGBA);
+ar::PointCloudData pointcloud(ar::PCL_PointXYZ);
 ar::mesh_handle cloud_handle;
 bool shuttingDown = false;
 // maps lepp IDs to visualizer IDs
@@ -322,7 +322,7 @@ void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool
     {
       total_received = 0;
     }
-    
+
 
     if (iface_header->id != am2b_iface::VISION_MESSAGE)
     {
@@ -456,7 +456,7 @@ void readFootstepsFrom(int socket_remote, const std::string host_addr, bool verb
   std::cout << "Attempting to subscribe to footstep data from " << host_addr << std::endl;
   am2b_iface::MsgId footstep_sub_id = __DOM_WPATT; //am2b_iface::STEPSEQ_AR_VIZUALIZATION;
   am2b_iface::MsgHeader footstep_sub = { am2b_iface::ps::SIG_PS_SUBSCRIBE, sizeof(am2b_iface::MsgId)};
- 
+
   size_t sent = write(socket_remote, (unsigned char*)&footstep_sub, sizeof(footstep_sub));
   if (sent <= 0)
     std::cout << "Error sending subscribe request!" << std::endl;
@@ -703,7 +703,7 @@ void printvec(float* vec, unsigned int len, std::ostream& out)
 
 void printmat(float* mat, unsigned int width, unsigned int height, std::string line_prefix, std::ostream& out)
 {
-  
+
   for (unsigned int i = 0; i < width; i++)
   {
     out << line_prefix << "[";
@@ -755,16 +755,18 @@ void udp_pose_listen(socklen_t s, bool verbose)
     }
 
     double cam_position[3] = {
-                  new_pose->t_wr_cl[0],
-                  new_pose->t_wr_cl[1],
-                  new_pose->t_wr_cl[2]
+                  new_pose->t_wr_cl[0] + new_pose->t_stance_odo[0],
+                  new_pose->t_wr_cl[1] + new_pose->t_stance_odo[1],
+                  new_pose->t_wr_cl[2] + new_pose->t_stance_odo[2]
     };
     double cam_orienation[3][3] = {
                   {new_pose->R_wr_cl[0], new_pose->R_wr_cl[1], new_pose->R_wr_cl[2]},
                   {new_pose->R_wr_cl[3], new_pose->R_wr_cl[4], new_pose->R_wr_cl[5]},
                   {new_pose->R_wr_cl[6], new_pose->R_wr_cl[7], new_pose->R_wr_cl[8]}
     };
-    viz.SetCameraPose(cam_position, cam_orienation);
+
+    std::cout << "New Pose! [" << cam_position[0] << ", " << cam_position[1] << ", " << cam_position[2] << "]" << std::endl;
+   viz.SetCameraPose(cam_position, cam_orienation);
 
   }
 }

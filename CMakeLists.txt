@@ -11,7 +11,7 @@ link_directories(${PCL_LIBRARY_DIRS})
 add_definitions(${PCL_DEFINITIONS})
 
 include_directories("src")
-include_directories("src/iface/iface")
+include_directories("src/iface/include")
 include_directories("extern/tclap/include")
 
 # Lola log player

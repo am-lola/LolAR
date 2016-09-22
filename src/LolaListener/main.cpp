@@ -38,7 +38,7 @@
 // maximum # of bytes expected in any incoming packet
 #define BUFLEN 2048
 ar::ARVisualizer viz;
-ar::PointCloudData pointcloud(ar::PCL_PointXYZRGBA);
+ar::PointCloudData pointcloud(ar::PCL_PointXYZ);
 ar::mesh_handle cloud_handle;
 bool shuttingDown = false;
 // maps lepp IDs to visualizer IDs
@@ -127,12 +127,14 @@ void failWithError(const std::string s)
 
 void renderFootstep(Footstep footstep)
 {
-  double quadNormal[3] = {0, 1, 0}; // TODO: Orient toward +Z
+  double quadNormal[3] = {0, 0, 1}; // should be parallel to ground
+  ar::Color leftColor(0.6, 0.8, 0.4);
+  ar::Color rightColor(0.0, 0.55, 1.0);
   ar::Quad newQuad(
     footstep._position[0], footstep._position[1], footstep._position[2],
     quadNormal,
     0.15, 0.15,
-    ar::Color(0.2, footstep._foot == Left ? 1 : 0, 1.0, 0.9)
+    footstep._foot == Left ? leftColor : rightColor
   );
   viz.Add(newQuad);
 }
@@ -322,11 +324,8 @@ void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool
       case am2b_iface::Message_Type::Obstacle:
       {
         am2b_iface::ObstacleMessage* message = (am2b_iface::ObstacleMessage*)(buf.data()+sizeof(am2b_iface::VisionMessageHeader) + sizeof(am2b_iface::MsgHeader));
-        if (verbose)
-        {
           std::cout << "Received obstacle: " << std::endl;
           std::cout << *message << std::endl;;
-        }
 
         // new obstacle to add to visualization
         if (message->action == am2b_iface::SET_SSV)
@@ -436,7 +435,7 @@ void readFootstepsFrom(int socket_remote, const std::string host_addr, bool verb
   std::cout << "Attempting to subscribe to footstep data from " << host_addr << std::endl;
   am2b_iface::MsgId footstep_sub_id = __DOM_WPATT; //am2b_iface::STEPSEQ_AR_VIZUALIZATION;
   am2b_iface::MsgHeader footstep_sub = { am2b_iface::ps::SIG_PS_SUBSCRIBE, sizeof(am2b_iface::MsgId)};
- 
+
   size_t sent = write(socket_remote, (unsigned char*)&footstep_sub, sizeof(footstep_sub));
   if (sent <= 0)
     std::cout << "Error sending subscribe request!" << std::endl;
@@ -683,7 +682,7 @@ void printvec(float* vec, unsigned int len, std::ostream& out)
 
 void printmat(float* mat, unsigned int width, unsigned int height, std::string line_prefix, std::ostream& out)
 {
-  
+
   for (unsigned int i = 0; i < width; i++)
   {
     out << line_prefix << "[";
@@ -697,6 +696,67 @@ void printmat(float* mat, unsigned int width, unsigned int height, std::string l
     out << std::endl;
   }
 }
+
+// utility functions for processing pose data
+/**
+ * Puts a rotation matrix (around the z-axis) for the given angle in the given
+ * matrix `matrix`.
+ * It is assumed that the given matrix points to a matrix of dimensions 3x3.
+ */
+
+void rotationmatrix(float angle, double matrix[3][3]) {
+  double s = sin(angle);
+  double c = cos(angle);
+
+  matrix[0][0] = c; matrix[0][1] = -s; matrix[0][2] = 0;
+  matrix[1][0] = s; matrix[1][1] = c; matrix[1][2] = 0;
+  matrix[2][0] = 0; matrix[2][1] = 0; matrix[2][2] = 1;
+}
+
+/**
+ * Transposes the given matrix `matrix` and puts the transpose result into the
+ * given `transpose` matrix.
+ *
+ * The matrices are assumed to be 3x3.
+ */
+void transpose(double matrix[][3], double transpose[][3]) {
+  for (int i = 0; i < 3; ++i) {
+    for (int j = 0; j < 3; ++j) {
+      transpose[j][i] = matrix[i][j];
+    }
+  }
+}
+// In pseudo-code (if matrix operations were supported):
+// translation = transpose(rotation_matrix) * (t_wr_cl + t_stance_odo)
+void getTranslation(double rotation_matrix[3][3], float t_wr_cl[3], float t_stance_odo[3], double translation[3])
+{
+  double transposed_matrix[3][3];
+  transpose(rotation_matrix, transposed_matrix);
+  for (int i = 0; i < 3; ++i) {
+    translation[i] = 0;
+    for (int j = 0; j < 3; ++j) {
+      translation[i] += transposed_matrix[i][j] * (t_wr_cl[j] + t_stance_odo[j]);
+    }
+  }
+}
+
+// In pseudo-code (if matrix operations were supported):
+// A_odo_cam = transpose(R_wr_cl * rotation_matrix)
+void getOrientation(float R_wr_cl[3][3], double rotation_matrix[3][3], double orientation[3][3])
+{
+  double A_odo_cam_no_trans[3][3];
+  for (int i = 0; i < 3; ++i) {
+    for (int j = 0; j < 3; ++j) {
+      orientation[i][j] = 0;
+      for (int k = 0; k < 3; ++k) {
+        orientation[i][j] += R_wr_cl[i][k] * rotation_matrix[k][j];
+      }
+    }
+  }
+  // transpose(A_odo_cam_no_trans, orientation);
+}
+
+
 
 void udp_pose_listen(socklen_t s, bool verbose)
 {
@@ -734,16 +794,17 @@ void udp_pose_listen(socklen_t s, bool verbose)
       std::cout << "------------------------------------------" << std::endl;
     }
 
-    double cam_position[3] = {
-                  new_pose->t_wr_cl[0],
-                  new_pose->t_wr_cl[1],
-                  new_pose->t_wr_cl[2]
-    };
-    double cam_orienation[3][3] = {
-                  {new_pose->R_wr_cl[0], new_pose->R_wr_cl[1], new_pose->R_wr_cl[2]},
-                  {new_pose->R_wr_cl[3], new_pose->R_wr_cl[4], new_pose->R_wr_cl[5]},
-                  {new_pose->R_wr_cl[6], new_pose->R_wr_cl[7], new_pose->R_wr_cl[8]}
-    };
+    double rotation_matrix[3][3];
+    rotationmatrix(new_pose->phi_z_odo, rotation_matrix);
+    double cam_position[3];
+    double cam_orienation[3][3];
+    float R_wr_cl_mat[3][3] ={
+                              {new_pose->R_wr_cl[0], new_pose->R_wr_cl[1], new_pose->R_wr_cl[2]},
+                              {new_pose->R_wr_cl[3], new_pose->R_wr_cl[4], new_pose->R_wr_cl[5]},
+                              {new_pose->R_wr_cl[6], new_pose->R_wr_cl[7], new_pose->R_wr_cl[8]}
+                            };
+    getTranslation(rotation_matrix, new_pose->t_wr_cl, new_pose->t_stance_odo, cam_position);
+    getOrientation(R_wr_cl_mat, rotation_matrix, cam_orienation);
     viz.SetCameraPose(cam_position, cam_orienation);
 
   }
@@ -775,8 +836,8 @@ int main(int argc, char* argv[])
   sigaction(SIGINT, &sigIntHandler, NULL);
 
   double cam_root_position[3] = {0, 0, 0};
-  double cam_root_forward[3]  = {0, 0, 1};
-  double cam_root_up[3]       = {0,-1, 0};
+  double cam_root_forward[3]  = {1, 0, 0};
+  double cam_root_up[3]       = {0, 0, 1};
 
   double camera_matrix[3][3] = {
     5.2921508098293293e+02, 0.0, 3.2894272028759258e+02,

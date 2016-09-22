@@ -251,7 +251,7 @@ void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool
     ssize_t ifaceHeaderSize = sizeof(am2b_iface::MsgHeader);
     ssize_t visionHeaderSize = sizeof(am2b_iface::VisionMessageHeader);
     ssize_t total_received = 0;
-    ssize_t total_expected = sizeof(ifaceHeaderSize);
+    ssize_t total_expected = ifaceHeaderSize;
 
     if (verbose)
     {

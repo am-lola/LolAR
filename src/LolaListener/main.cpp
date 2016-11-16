@@ -71,7 +71,7 @@ bool parse_args(int argc, char* argv[], ParsedParams* params)
                                                "Hostname to connect to for footstep data, in the form: ' ip:port '",
                                                false, "", "hostname:port  or  ip:port");
     TCLAP::ValueArg<unsigned int> posePort("p", "poseport",
-                                               "Port to listen on for pose data",
+                                               "Port to listen on for pose data. With lola_state_server, -p 53249",
                                                false, 0, "unsigned int");
     TCLAP::SwitchArg verbose("v", "verbose",
                              "Verbose output", cmd, false);

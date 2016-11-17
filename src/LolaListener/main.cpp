@@ -68,7 +68,7 @@ bool parse_args(int argc, char* argv[], ParsedParams* params)
                                                "Port to listen on for obstacle data",
                                                false, 0, "unsigned int");
     TCLAP::ValueArg<std::string>  footstepHost("f", "footstephost",
-                                               "Hostname to connect to for footstep data, in the form: ' ip:port '",
+                                               "Hostname to connect to for footstep data, in the form: ' ip:port '. With lola, -f 192.168.0.7:61441",
                                                false, "", "hostname:port  or  ip:port");
     TCLAP::ValueArg<unsigned int> posePort("p", "poseport",
                                                "Port to listen on for pose data. With lola_state_server, -p 53249",

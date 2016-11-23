@@ -51,6 +51,7 @@ struct ParsedParams
   unsigned int footstepPort = 0; // port number to listen on for footstep data
   std::string  footstepHost = "";// host to connect to for footstep data
   unsigned int posePort     = 0; // port number to listen on for pose data
+  bool largeViewer = false; // extend the viewer to include an area bigger than the vision message
   bool verbose = false;
 };
 
@@ -73,16 +74,21 @@ bool parse_args(int argc, char* argv[], ParsedParams* params)
     TCLAP::ValueArg<unsigned int> posePort("p", "poseport",
                                                "Port to listen on for pose data. With lola_state_server, -p 53249",
                                                false, 0, "unsigned int");
+    TCLAP::ValueArg<bool> largeViewer("l", "largeviewer",
+                                               "Extend the viewer to include an area bigger than the vision message. Useful, for example, for showing footsteps in first person AR. Default: false",
+                                               false, 0, "bool");
     TCLAP::SwitchArg verbose("v", "verbose",
                              "Verbose output", cmd, false);
     cmd.add(obstaclePort);
     cmd.add(footstepHost);
     cmd.add(posePort);
+    cmd.add(largeViewer);
 
     cmd.parse(argc, argv);
 
     params->obstaclePort = obstaclePort.getValue();
     params->posePort = posePort.getValue();
+    params->largeViewer = largeViewer.getValue();
     params->verbose = verbose.getValue();
 
     size_t delimpos;
@@ -241,7 +247,7 @@ void process(am2b_iface::VisionMessage* message)
 
 }
 
-void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool verbose)
+void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool largeViewer, bool verbose)
 {
   std::vector<unsigned char> buf;
   buf.resize(BUFLEN);
@@ -419,7 +425,15 @@ void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool
           std::cout << "\tWidth:  " << message->width << std::endl;
           std::cout << "\tHeight: " << message->height << std::endl;
         }
-        viz.NotifyNewVideoFrame(message->width, message->height, message->pixels);
+        if (largeViewer)
+        {
+          viz.NotifyNewVideoFrame(message->width, 2.0 * message->height, message->pixels);
+        }
+        else
+        {
+          viz.NotifyNewVideoFrame(message->width, message->height, message->pixels);
+        }
+
         break;
       }
       case am2b_iface::Message_Type::PointCloud:
@@ -645,7 +659,7 @@ socklen_t create_udp_socket(unsigned int port)
   return s;
 }
 
-void listen(int sock_obstacles, bool verbose)
+void listen(int sock_obstacles, bool largeViewer, bool verbose)
 {
   struct sockaddr_in si_other;
   int s_other;
@@ -684,7 +698,7 @@ void listen(int sock_obstacles, bool verbose)
     // receive data from new connection
     if (fd == sock_obstacles)
     {
-      std::thread servicer(readVisionMessagesFrom, s_other, si_other, verbose);
+      std::thread servicer(readVisionMessagesFrom, s_other, si_other, largeViewer, verbose);
       servicer.detach();
     }
   }
@@ -893,7 +907,7 @@ int main(int argc, char* argv[])
   if (params.obstaclePort > 0)
   {
     obstacle_socket = create_server_socket(params.obstaclePort);
-    listen(obstacle_socket, params.verbose);
+    listen(obstacle_socket, params.largeViewer, params.verbose);
   }
 
   while(!shuttingDown)

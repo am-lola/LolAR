@@ -795,7 +795,7 @@ void getOrientation(float R_wr_cl[3][3], double rotation_matrix[3][3], double or
 
 
 
-void udp_pose_listen(socklen_t s, bool verbose)
+void udp_pose_listen(socklen_t s, bool verbose, bool largeViewer)
 {
   char buf[BUFLEN];
   sockaddr_in si_other;
@@ -844,6 +844,15 @@ void udp_pose_listen(socklen_t s, bool verbose)
     getOrientation(R_wr_cl_mat, rotation_matrix, cam_orienation);
     viz.SetCameraPose(cam_position, cam_orienation);
 
+    if(largeViewer)
+    {
+      double new_camera_matrix[3][3] = {
+            5.2921508098293293e+02, 0.0, 3.2894272028759258e+02,
+            0.0, 5.2556393630057437e+02, 2.0 * 2.6748068171871557e+02,
+            0.0, 0.0, 1.0
+      };
+      viz.SetCameraIntrinsics(new_camera_matrix);
+    }
   }
 }
 
@@ -893,7 +902,7 @@ int main(int argc, char* argv[])
   if (params.posePort > 0)
   {
     pose_socket = create_udp_socket(params.posePort);
-    std::thread servicer(udp_pose_listen, pose_socket, params.verbose);
+    std::thread servicer(udp_pose_listen, pose_socket, params.verbose, params.largeViewer);
     servicer.detach();
   }
 

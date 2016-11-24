@@ -427,7 +427,7 @@ void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool
         }
         if (largeViewer)
         {
-          viz.NotifyNewVideoFrame(message->width, 2.0 * message->height, message->pixels);
+          viz.NotifyNewVideoFrame(message->width, message->height, message->pixels, 2);
         }
         else
         {

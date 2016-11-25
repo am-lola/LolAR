@@ -51,7 +51,7 @@ struct ParsedParams
   unsigned int footstepPort = 0; // port number to listen on for footstep data
   std::string  footstepHost = "";// host to connect to for footstep data
   unsigned int posePort     = 0; // port number to listen on for pose data
-  bool largeViewer = false; // extend the viewer to include an area bigger than the vision message
+  float largeViewer = 1; // extend the viewer to include an area bigger than the vision message
   bool verbose = false;
 };
 
@@ -74,9 +74,9 @@ bool parse_args(int argc, char* argv[], ParsedParams* params)
     TCLAP::ValueArg<unsigned int> posePort("p", "poseport",
                                                "Port to listen on for pose data. With lola_state_server, -p 53249",
                                                false, 0, "unsigned int");
-    TCLAP::ValueArg<bool> largeViewer("l", "largeviewer",
-                                               "Extend the viewer to include an area bigger than the vision message. Useful, for example, for showing footsteps in first person AR. Default: false",
-                                               false, 0, "bool");
+    TCLAP::ValueArg<float> largeViewer("l", "largeviewer",
+                                               "Factor to extend the viewer in order to include an area bigger than the vision message. Useful, for example, for showing footsteps in first person AR. Default: 1, Typical value: 2",
+                                               false, 1, "float");
     TCLAP::SwitchArg verbose("v", "verbose",
                              "Verbose output", cmd, false);
     cmd.add(obstaclePort);
@@ -247,7 +247,7 @@ void process(am2b_iface::VisionMessage* message)
 
 }
 
-void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool largeViewer, bool verbose)
+void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, float largeViewer, bool verbose)
 {
   std::vector<unsigned char> buf;
   buf.resize(BUFLEN);
@@ -425,9 +425,9 @@ void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, bool
           std::cout << "\tWidth:  " << message->width << std::endl;
           std::cout << "\tHeight: " << message->height << std::endl;
         }
-        if (largeViewer)
+        if (largeViewer != 1)
         {
-          viz.NotifyNewVideoFrame(message->width, message->height, message->pixels, 2);
+          viz.NotifyNewVideoFrame(message->width, message->height, message->pixels, largeViewer);
         }
         else
         {
@@ -659,7 +659,7 @@ socklen_t create_udp_socket(unsigned int port)
   return s;
 }
 
-void listen(int sock_obstacles, bool largeViewer, bool verbose)
+void listen(int sock_obstacles, float largeViewer, bool verbose)
 {
   struct sockaddr_in si_other;
   int s_other;
@@ -795,7 +795,7 @@ void getOrientation(float R_wr_cl[3][3], double rotation_matrix[3][3], double or
 
 
 
-void udp_pose_listen(socklen_t s, bool verbose, bool largeViewer)
+void udp_pose_listen(socklen_t s, bool verbose)
 {
   char buf[BUFLEN];
   sockaddr_in si_other;
@@ -844,15 +844,6 @@ void udp_pose_listen(socklen_t s, bool verbose, bool largeViewer)
     getOrientation(R_wr_cl_mat, rotation_matrix, cam_orienation);
     viz.SetCameraPose(cam_position, cam_orienation);
 
-    if(largeViewer)
-    {
-      double new_camera_matrix[3][3] = {
-            5.2921508098293293e+02, 0.0, 3.2894272028759258e+02,
-            0.0, 5.2556393630057437e+02, 2.0 * 2.6748068171871557e+02,
-            0.0, 0.0, 1.0
-      };
-      viz.SetCameraIntrinsics(new_camera_matrix);
-    }
   }
 }
 
@@ -887,7 +878,7 @@ int main(int argc, char* argv[])
 
   double camera_matrix[3][3] = {
     5.2921508098293293e+02, 0.0, 3.2894272028759258e+02,
-    0.0, 5.2556393630057437e+02, 2.6748068171871557e+02,
+    0.0, 5.2556393630057437e+02, params.largeViewer * 2.6748068171871557e+02,
     0.0, 0.0, 1.0
   };
 
@@ -902,7 +893,7 @@ int main(int argc, char* argv[])
   if (params.posePort > 0)
   {
     pose_socket = create_udp_socket(params.posePort);
-    std::thread servicer(udp_pose_listen, pose_socket, params.verbose, params.largeViewer);
+    std::thread servicer(udp_pose_listen, pose_socket, params.verbose);
     servicer.detach();
   }
 

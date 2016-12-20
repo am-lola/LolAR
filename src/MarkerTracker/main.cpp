@@ -16,7 +16,7 @@
 #include <vector>
 #include <utility>
 
-#include <am2b-arvis/ARVisualizer.hpp>
+#include <ARVisualizer.hpp>
 
 #include "utils.hpp"
 #include "CameraPoseEstimator.hpp"

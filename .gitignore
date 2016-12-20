@@ -2,3 +2,4 @@
 *.g.cpp
 build/
 .*/
+cmake-build-debug/

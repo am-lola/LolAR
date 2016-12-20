@@ -20,7 +20,7 @@
 #include <iface_vis.h>
 #include <iface_vision_msg.hpp>
 
-#include <am2b-arvis/ARVisualizer.hpp>
+#include <ARVisualizer.hpp>
 
 #include <tclap/CmdLine.h>
 

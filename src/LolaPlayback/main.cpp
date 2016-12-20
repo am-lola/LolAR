@@ -16,7 +16,7 @@
 #include <thread>
 #include <utility>
 
-#include <am2b-arvis/ARVisualizer.hpp>
+#include <ARVisualizer.hpp>
 
 #include "StepPlannerLogReader.hpp"
 #include "CameraPoseEstimator.hpp"

@@ -2,6 +2,8 @@
 
 Augmented-Reality Visualization for Lola
 
+Please clone this project with `--recursive` in order to pull in all submodules.
+
 # Dependencies
 
 * [ARVisualizer](https://gitlab.lrz.de/AMCode/ARVisualizer)

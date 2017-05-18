@@ -99,8 +99,8 @@ int main(int argc, char* argv[])
   interface = new pcl::OpenNIGrabber("", pcl::OpenNIGrabber::OpenNI_VGA_30Hz);
 
   // initialize marker tracker
-  auto dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_5X5_1000);
-  auto marker = cv::aruco::GridBoard::create(1,2, 0.195, 0.01, dictionary);
+  auto dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_6X6_1000);
+  auto marker = cv::aruco::GridBoard::create(1,2, 0.205, 0.008, dictionary);
   // auto marker = cv::aruco::GridBoard::create(2,2, 0.145, 0.01, dictionary);
 
   auto tracker = ArucoTracker(camera_params, marker);

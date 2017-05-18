@@ -100,7 +100,7 @@ public:
       cv::Vec3d rvec, tvec;
       int valid = cv::aruco::estimatePoseBoard(corners, ids, _markerBoard, _cameraMatrix, _distortionCoefficients, rvec, tvec);
 
-      if(valid > 0)
+      if(valid > 1) // only process pose if at least two markers were seen
       {
         cv::aruco::drawAxis(imageCopy, _cameraMatrix, _distortionCoefficients, rvec, tvec, 0.1);
         _translation[0] = tvec[0];

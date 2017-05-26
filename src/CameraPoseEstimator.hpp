@@ -283,45 +283,16 @@ private:
         markerPlane.numPoints = planecloud->size();
         _visualizer.Update(markerPlane_handle, markerPlane);
 
-        pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> ne;
-        ne.setInputCloud (markercloud);
-        pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ> ());
-        ne.setSearchMethod (tree);
-        pcl::PointCloud<pcl::Normal>::Ptr cloud_normals (new pcl::PointCloud<pcl::Normal>);
-        ne.setRadiusSearch (0.03);
-        ne.compute (*cloud_normals);
 
         // compute avg normal
-        double avg_normal[3] = {0, 0, 1};
-        size_t total_normals = cloud_normals->width * cloud_normals->height;
-        for (size_t i = 0; i < cloud_normals->width; ++i)
-        {
-           for (size_t j = 0; j < cloud_normals->height; ++j)
-           {
-              // make sure normal is pointing the right way
-              Eigen::Vector4f n_flipped(cloud_normals->at(i,j).data_c[0],
-                                        cloud_normals->at(i,j).data_c[1],
-                                        cloud_normals->at(i,j).data_c[2],
-                                        cloud_normals->at(i,j).data_c[3]);
-              flipNormalTowardsViewpoint (markercloud->at(i,j), 0.0f, 0.0f, 0.0f, n_flipped);
-              if (std::isnan(n_flipped.x()) ||
-                  std::isnan(n_flipped.y()) ||
-                  std::isnan(n_flipped.z()))
-              {
-                total_normals--;
-                continue;
-              }
-              avg_normal[0] += n_flipped.x();
-              avg_normal[1] += n_flipped.y();
-              avg_normal[2] += n_flipped.z();
-           }
-        }
-        avg_normal[0] /= (double)(total_normals);
-        avg_normal[1] /= (double)(total_normals);
-        avg_normal[2] /= (double)(total_normals);
+        double board_normal[3] = {
+            coefficients->values[0] / coefficients->values[3],
+            coefficients->values[1] / coefficients->values[3],
+            coefficients->values[2] / coefficients->values[3],
+        };
 
         // visualize marker board
-        static ar::Quad board = ar::Quad(truePosition, avg_normal, 0.4, 0.3, ar::Color(0.8,0.8,0));
+        static ar::Quad board = ar::Quad(truePosition, board_normal, 0.4, 0.3, ar::Color(0.8,0.8,0));
         static ar::mesh_handle board_handle = _visualizer.Add(board);
         static ar::Transform boardTransform = ar::Transform();
         boardTransform.translation[0] = truePosition[0];
@@ -332,7 +303,7 @@ private:
         static ar::LinePath n_line = ar::LinePath(0.005f, ar::Color(0.5, 0.52, 0.8));
         static double n_line_end[3];
         Eigen::Vector3f nnormal = Eigen::Vector3f(truePosition[0], truePosition[1], truePosition[2]) +
-              Eigen::Vector3f(avg_normal[0], avg_normal[1], avg_normal[2]).normalized()*0.2f;
+              Eigen::Vector3f(board_normal[0], board_normal[1], board_normal[2]).normalized()*0.2f;
 
         n_line_end[0] = nnormal.x();
         n_line_end[1] = nnormal.y();
@@ -348,7 +319,7 @@ private:
         static ar::mesh_handle normal_line_handle = _visualizer.Add(n_line);
         _visualizer.Update(normal_line_handle, n_line);
 
-        auto boardRotation = Eigen::Quaternionf::FromTwoVectors(Eigen::Vector3f(1, 0, 0), Eigen::Vector3f(avg_normal[0], avg_normal[1], avg_normal[2])).toRotationMatrix();
+        auto boardRotation = Eigen::Quaternionf::FromTwoVectors(Eigen::Vector3f(0, 0, 1), Eigen::Vector3f(board_normal[0], board_normal[1], board_normal[2])).toRotationMatrix();
         for (size_t i = 0; i < 3; i++)
         {
           for (size_t j = 0; j < 3; j++)
@@ -363,7 +334,7 @@ private:
         _cameraPosition[1] = -truePosition[0]; // X in sensor-coords is Y in world coords
 
         // find camera's yaw rotation, relative to marker /// TODO: add offset from marker to Lola's world origin
-        Eigen::Vector3f board_normal_adjusted = Eigen::Vector3f(avg_normal[0], 0.0f, avg_normal[2]).normalized();
+        Eigen::Vector3f board_normal_adjusted = Eigen::Vector3f(board_normal[0], 0.0f, board_normal[2]).normalized();
         _cameraRotation[1] = M_PI - acos(board_normal_adjusted.dot(Eigen::Vector3f(0.0f, 0.0f, 1.0f)));
         // ensure sign of the rotation is correct -- assumes rotation is about the -Y axis, with +Z aligning to a rotation of 0 degrees
         if (Eigen::Vector3f(0.0f, -1.0f, 0.0f).dot(board_normal_adjusted.cross(Eigen::Vector3f(0.0f, 0.0f, 1.0f))) < 0)

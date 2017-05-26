@@ -7,6 +7,7 @@
 #include <pcl/sample_consensus/method_types.h>
 #include <pcl/sample_consensus/model_types.h>
 #include <pcl/segmentation/sac_segmentation.h>
+#include <pcl/filters/project_inliers.h>
 #include <pcl/common/transforms.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -61,9 +62,11 @@ public:
   // @position Buffer to store the position in. Must be of length 3.
   void GetPosition(double* position)
   {
+    auto t_pos = GetTransform().matrix(); //_markerToWorld * _cam2Marker_t; 
     for (size_t i = 0; i < 3; i++)
     {
-      position[i] = _cameraPosition[i];
+//      position[i] = _cameraPosition[i];
+      position[i] = t_pos(i, 3);
     }
   }
 
@@ -81,12 +84,12 @@ public:
   // @rotation Buffer to store the rotation matrix in. Must be 3x3 array.
   void GetRotationMatrix(double rotation[3][3])
   {
-    Eigen::AngleAxisd rollAngle(-_cameraRotation[2], Eigen::Vector3d::UnitY());
-    Eigen::AngleAxisd pitchAngle(-_cameraRotation[0], Eigen::Vector3d::UnitX());
-    Eigen::AngleAxisd yawAngle(-_cameraRotation[1], Eigen::Vector3d::UnitZ());
-
-    Eigen::Quaternion<double> q = rollAngle * pitchAngle * yawAngle;
-    Eigen::Matrix3d rotationMatrix = q.matrix();
+      /*
+    Eigen::AngleAxisd rollAngle(_cameraRotation[2], Eigen::Vector3d::UnitX());
+    Eigen::AngleAxisd pitchAngle(_cameraRotation[0], Eigen::Vector3d::UnitY());
+    Eigen::AngleAxisd yawAngle(_cameraRotation[1], Eigen::Vector3d::UnitZ());
+      */
+    Eigen::Matrix4f rotationMatrix = GetTransform().matrix();
 
     for (size_t i = 0; i < 3; i++)
     {
@@ -108,17 +111,11 @@ public:
   // relative to the camera from the world coordinate frame
   Eigen::Affine3f GetTransform()
   {
-    Eigen::Affine3f transform = _markerToWorld;
-
     // apply camera transformation
-    Eigen::AngleAxisf rollAngle(-_cameraRotation[0], Eigen::Vector3f::UnitX());
-    Eigen::AngleAxisf pitchAngle(-_cameraRotation[1], Eigen::Vector3f::UnitY());
-    Eigen::AngleAxisf yawAngle(-_cameraRotation[2], Eigen::Vector3f::UnitZ());
+    auto toMarker = Eigen::Translation3f(_cam2Marker_t) * Eigen::Affine3f(_cam2Marker_r);
 
-    transform.rotate(Eigen::Quaternionf(rollAngle * pitchAngle * yawAngle));
-    transform.pretranslate(_cameraPosition);
 
-    return transform;
+    return (toMarker * _markerToWorld).inverse();
   }
 
   // Updates camera parameters from a pointcloud generated from the camera's perspective
@@ -154,8 +151,8 @@ public:
 
       // get pitch and roll values from rotation
       auto rot_euler = rot_quat.toRotationMatrix().eulerAngles(0, 1, 2);
-      _cameraRotation[0] = M_PI - rot_euler[0]; // flipped because camera will have the opposite rotation
-      _cameraRotation[2] = M_PI - rot_euler[2];
+      _cameraRotation[0] = rot_euler[0]; // flipped because camera will have the opposite rotation
+      _cameraRotation[2] = rot_euler[2];
 
       // transform floor to match its real-world orientation
       Eigen::Affine3f rotation(rot_quat);
@@ -190,7 +187,10 @@ public:
       if (_lastCloud->height > 1)
       {
         double* image_location = _markerTracker.LastImagePos();
-        UpdateFromMarkerPos(glm::floor(image_location[0]), glm::floor(image_location[1]));
+        double* image_axis = _markerTracker.LastAxis();
+        UpdateFromMarkerPos(glm::floor(image_location[0]), glm::floor(image_location[1]),
+                            glm::floor(image_axis[0]), glm::floor(image_axis[1]),
+                            glm::floor(image_axis[2]), glm::floor(image_axis[3]));
       }
     }
   }
@@ -207,7 +207,10 @@ public:
       if (_lastCloud->height > 1)
       {
         double* image_location = _markerTracker.LastImagePos();
-        UpdateFromMarkerPos(glm::floor(image_location[0]), glm::floor(image_location[1]));
+        double* image_axis = _markerTracker.LastAxis();
+        UpdateFromMarkerPos(glm::floor(image_location[0]), glm::floor(image_location[1]),
+                            glm::floor(image_axis[0]), glm::floor(image_axis[1]),
+                            glm::floor(image_axis[2]), glm::floor(image_axis[3]));
       }
     }
   }
@@ -217,8 +220,10 @@ private:
   ArucoTracker  _markerTracker;
 
   Eigen::Affine3f _markerToWorld;  // transform of marker center to world origin
-  Eigen::Vector3f _cameraPosition; // camera position in world coordinates
+  Eigen::Vector3f _cameraPosition = Eigen::Vector3f(0.0, 0.0, 0.0); // camera position in world coordinates
   Eigen::Vector3f _cameraRotation; // euler angles for camera's orientation (in world coords)
+  Eigen::Vector3f _cam2Marker_t = Eigen::Vector3f(0.0, 0.0, 0.0);   // translation from camera to marker (camera-relative)
+  Eigen::Matrix3f _cam2Marker_r = Eigen::Matrix3f::Identity();   // rotation from camera to marker (camera-relative)
 
   typename pcl::PointCloud<PointT>::ConstPtr _lastCloud; // most recent pointcloud received
 
@@ -228,17 +233,27 @@ private:
   // Updates: Yaw, X, Y
   // @markerX x-coord of marker center in image
   // @markerY y-coord of marker center in image
-  void UpdateFromMarkerPos(int markerX, int markerY)
+  void UpdateFromMarkerPos(int markerX, int markerY, int marker1X, int marker1Y, int marker2X, int marker2Y)
   {
     auto point = _lastCloud->at(markerX, markerY);
+    auto pm1   = _lastCloud->at(marker1X, marker1Y);
+    auto pm2   = _lastCloud->at(marker2X, marker2Y);
     if (point.x + point.y + point.z != 0 &&
-        !std::isnan(point.x) && !std::isnan(point.y) && !std::isnan(point.z))
+        !std::isnan(point.x) && !std::isnan(point.y) && !std::isnan(point.z) &&
+        pm1.x + pm1.y + pm1.z != 0 &&
+        !std::isnan(pm1.x) && !std::isnan(pm1.y) && !std::isnan(pm1.z) &&
+        pm2.x + pm2.y + pm2.z != 0 &&
+        !std::isnan(pm2.x) && !std::isnan(pm2.y) && !std::isnan(pm2.z)
+        )
     {
       // marker's center
       double truePosition[3] = {point.x, point.y, point.z};
       ar::Sphere truePos(truePosition, 0.02, ar::Color(1,0,0));
       static ar::mesh_handle marker_origin_handle = _visualizer.Add(truePos);
       _visualizer.Update(marker_origin_handle, truePos);
+
+      // set camera translation to marker
+      _cam2Marker_t = {point.x, point.y, point.z};
 
       // extract a portion of the cloud around the detected marker
       typename pcl::PointCloud<PointT>::Ptr markercloud(new pcl::PointCloud<PointT>);
@@ -283,6 +298,23 @@ private:
         markerPlane.numPoints = planecloud->size();
         _visualizer.Update(markerPlane_handle, markerPlane);
 
+        typename pcl::PointCloud<PointT>::Ptr marker_axis_cld( new pcl::PointCloud<PointT>());
+        marker_axis_cld->width = 2;
+        marker_axis_cld->height = 1;
+        marker_axis_cld->resize(2);
+        marker_axis_cld->points[0] = pm1;
+        marker_axis_cld->points[1] = pm2;
+        typename pcl::PointCloud<PointT>::Ptr marker_axis_prj(new pcl::PointCloud<PointT>());
+        pcl::ProjectInliers<PointT> plane_proj;
+        plane_proj.setModelType (pcl::SACMODEL_PLANE);
+        plane_proj.setInputCloud (marker_axis_cld);
+        plane_proj.setModelCoefficients (coefficients);
+        plane_proj.filter (*marker_axis_prj);
+
+        // get vector from marker1 center to marker2 center
+        Eigen::Vector3f marker_axis = Eigen::Vector3f(marker_axis_prj->points[1].x - marker_axis_prj->points[0].x,
+                                                      marker_axis_prj->points[1].y - marker_axis_prj->points[0].y,
+                                                      marker_axis_prj->points[1].z - marker_axis_prj->points[0].z).normalized();
 
         // compute avg normal
         double board_normal[3] = {
@@ -309,25 +341,29 @@ private:
         n_line_end[1] = nnormal.y();
         n_line_end[2] = nnormal.z();
         n_line.points = {
-            truePosition[0],
-            truePosition[1],
-            truePosition[2],
-            n_line_end[0],
-            n_line_end[1],
-            n_line_end[2]
+            (float)truePosition[0],
+            (float)truePosition[1],
+            (float)truePosition[2],
+            (float)n_line_end[0],
+            (float)n_line_end[1],
+            (float)n_line_end[2]
         };
         static ar::mesh_handle normal_line_handle = _visualizer.Add(n_line);
         _visualizer.Update(normal_line_handle, n_line);
 
-        auto boardRotation = Eigen::Quaternionf::FromTwoVectors(Eigen::Vector3f(0, 0, 1), Eigen::Vector3f(board_normal[0], board_normal[1], board_normal[2])).toRotationMatrix();
+        auto boardRotation = Eigen::Quaternionf::FromTwoVectors(Eigen::Vector3f(0, 0, 1), Eigen::Vector3f(board_normal[0], board_normal[1], board_normal[2]));
+        Eigen::Vector3f curr_x_axis = boardRotation * Eigen::Vector3f::UnitX();
+        auto boardRotation_fin = (Eigen::Quaternionf::FromTwoVectors(curr_x_axis, marker_axis) * boardRotation).toRotationMatrix();
         for (size_t i = 0; i < 3; i++)
         {
           for (size_t j = 0; j < 3; j++)
           {
-            boardTransform.rotation[i][j] = boardRotation(i, j);
+            boardTransform.rotation[i][j] = boardRotation_fin(i, j);
           }
         }
         _visualizer.Update(board_handle, boardTransform, true);
+
+        _cam2Marker_r = boardRotation_fin;
 
         // find camera's position, relative to marker     /// TODO: add offset from marker to Lola's world origin
         _cameraPosition[0] =  truePosition[2]; // Z in sensor-coords is X in world coords

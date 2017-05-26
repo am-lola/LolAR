@@ -129,6 +129,42 @@ public:
         _imageCenter[0] = centroid.x;
         _imageCenter[1] = centroid.y;
 
+        // save marker centers
+        cv::Point2f center1(0, 0);
+        total = 0;
+        for (auto point : corners[0])
+        {
+            center1.x += point.x;
+            center1.y += point.y;
+            total++;
+        }
+        center1.x /= total;
+        center1.y /= total;
+        cv::Point2f center2(0, 0);
+        total = 0;
+        for (auto point : corners[1])
+        {
+            center2.x += point.x;
+            center2.y += point.y;
+            total++;
+        }
+        center2.x /= total;
+        center2.y /= total;
+
+        if (center2.x < center1.x)
+        {
+            _img_x_axis[2] = center1.x;
+            _img_x_axis[3] = center1.y;
+            _img_x_axis[0] = center2.x;
+            _img_x_axis[1] = center2.y;
+        }
+        else
+        {
+            _img_x_axis[0] = center1.x;
+            _img_x_axis[1] = center1.y;
+            _img_x_axis[2] = center2.x;
+            _img_x_axis[3] = center2.y;
+        }
         _hasPose = true;
       }
     }
@@ -142,7 +178,10 @@ public:
   double* LastTranslation() { return _translation; }
   double* LastRotation() { return _rotation; }
   double* LastImagePos() { return _imageCenter; }
-
+  double* LastAxis() { 
+      return _img_x_axis;
+  }
+  
 
 private:
   bool _hasPose = false;
@@ -150,6 +189,7 @@ private:
   double _translation[3];
   double _rotation[3];
   double _imageCenter[2];
+  double _img_x_axis[4];
 
   cv::Ptr<cv::aruco::Board> _markerBoard; // marker board to detect
   cv::Mat _cameraMatrix;           // camera intrinsic parameters

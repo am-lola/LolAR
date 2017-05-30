@@ -62,10 +62,9 @@ public:
   // @position Buffer to store the position in. Must be of length 3.
   void GetPosition(double* position)
   {
-    auto t_pos = GetTransform().matrix(); //_markerToWorld * _cam2Marker_t; 
+    auto t_pos = GetTransform().matrix();
     for (size_t i = 0; i < 3; i++)
     {
-//      position[i] = _cameraPosition[i];
       position[i] = t_pos(i, 3);
     }
   }
@@ -74,9 +73,11 @@ public:
   // @rotation Buffer to store the rotation in. Must be of length 3.
   void GetOrientation(double* rotation)
   {
+    auto t = GetTransform().matrix();
+    auto e = t.eulerAngles(0,1,2);
     for (size_t i = 0; i < 3; i++)
     {
-      rotation[i] = _cameraRotation[i];
+      rotation[i] = e[i];
     }
   }
 
@@ -115,7 +116,7 @@ public:
     auto toMarker = Eigen::Translation3f(_cam2Marker_t) * Eigen::Affine3f(_cam2Marker_r);
 
 
-    return (toMarker * _markerToWorld).inverse();
+    return (toMarker * _markerToWorld);
   }
 
   // Updates camera parameters from a pointcloud generated from the camera's perspective
@@ -259,8 +260,8 @@ private:
       typename pcl::PointCloud<PointT>::Ptr markercloud(new pcl::PointCloud<PointT>);
 
       // Fill in the cloud data /// TODO: scale # of points taken with distance from sensor
-      markercloud->width  = 65; 
-      markercloud->height = 65; 
+      markercloud->width  = 65;
+      markercloud->height = 65;
       markercloud->points.resize(markercloud->width * markercloud->height);
       for (size_t i = 0; i < markercloud->width; ++i)
       {

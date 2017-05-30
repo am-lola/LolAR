@@ -85,21 +85,29 @@ public:
   // @rotation Buffer to store the rotation matrix in. Must be 3x3 array.
   void GetRotationMatrix(double rotation[3][3])
   {
-      /*
-    Eigen::AngleAxisd rollAngle(_cameraRotation[2], Eigen::Vector3d::UnitX());
-    Eigen::AngleAxisd pitchAngle(_cameraRotation[0], Eigen::Vector3d::UnitY());
-    Eigen::AngleAxisd yawAngle(_cameraRotation[1], Eigen::Vector3d::UnitZ());
-      */
     Eigen::Matrix4f rotationMatrix = GetTransform().matrix();
 
     for (size_t i = 0; i < 3; i++)
     {
       for (size_t j = 0; j < 3; j++)
       {
-        rotation[i][j] = rotationMatrix(i, j);
+        rotation[i][j] = rotationMatrix(j, i);
       }
     }
   }
+
+  // void GetCam2MarkerRotationMatrix(double rotation[3][3])
+  // {
+  //   Eigen::Matrix4f rotationMatrix = GetCam2MarkerTransform().matrix();
+  //
+  //   for (size_t i = 0; i < 3; i++)
+  //   {
+  //     for (size_t j = 0; j < 3; j++)
+  //     {
+  //       rotation[i][j] = rotationMatrix(i, j);
+  //     }
+  //   }
+  // }
 
   // Sets the transformation between the marker origin and world origin
   // Should most likely come from robot's kinematics
@@ -114,10 +122,16 @@ public:
   {
     // apply camera transformation
     auto toMarker = Eigen::Translation3f(_cam2Marker_t) * Eigen::Affine3f(_cam2Marker_r);
-
-
-    return (toMarker * _markerToWorld);
+    return (toMarker).inverse(); // * _markerToWorld).inverse();
   }
+
+  // Eigen::Affine3f GetCam2MarkerTransform()
+  // {
+  //   // apply camera transformation
+  //   auto toMarker = Eigen::Translation3f(_cam2Marker_t) *
+  //                   Eigen::Affine3f(_cam2Marker_r);
+  //   return (toMarker);
+  // }
 
   // Updates camera parameters from a pointcloud generated from the camera's perspective
   // From the pointcloud we get: Pitch, Roll, and Height (Z)
@@ -317,7 +331,7 @@ private:
                                                       marker_axis_prj->points[1].y - marker_axis_prj->points[0].y,
                                                       marker_axis_prj->points[1].z - marker_axis_prj->points[0].z).normalized();
 
-        // compute avg normal
+        // compute marker normal
         double board_normal[3] = {
             coefficients->values[0] / coefficients->values[3],
             coefficients->values[1] / coefficients->values[3],

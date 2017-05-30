@@ -122,7 +122,7 @@ public:
   {
     // apply camera transformation
     auto toMarker = Eigen::Translation3f(_cam2Marker_t) * Eigen::Affine3f(_cam2Marker_r);
-    return (toMarker).inverse(); // * _markerToWorld).inverse();
+    return (toMarker * _markerToWorld).inverse();
   }
 
   // Eigen::Affine3f GetCam2MarkerTransform()

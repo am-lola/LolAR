@@ -122,10 +122,37 @@ int main(int argc, char* argv[])
   vizImages.SetCameraIntrinsics(camera_params.intrinsics);
   vizImages.SetCameraPose(camera_position, camera_forward, camera_up);
 
-  // wait for user to exit
-  std::cout << "Press enter when ready to exit..." << std::endl;
-  std::cin.get();
-  std::cout << "Shutting down..." << std::endl;
+  // render box on marker
+  double obox_center[3] = {0, 1.2, 0};
+  ar::Box obox(obox_center, 0.25, 0.1, 0.1, ar::Color(0.2, 0.8, 1.0));
+  auto obox_h = vizImages.Add(obox);
+  ar::Transform obox_t;
+  // render box on origin
+  double box_center[3] = {0, 0, 0};
+  ar::Box box(box_center, 0.25, 0.1, 0.1, ar::Color(1.0, 0.8, 0.2));
+  auto box_h = vizImages.Add(box);
+  ar::Transform box_t;
+
+  cameraPoseEstimator->SetMarkerTransform(Eigen::Translation3f(Eigen::Vector3f(0.0f, -1.2f, 0.0F)) * Eigen::Affine3f::Identity());
+  double cam_pos[3] = {0.0, 0.0, 0.0};
+  double cam_rot_mat[3][3];
+  while(1)
+  {
+    cameraPoseEstimator->GetPosition(cam_pos);
+    cameraPoseEstimator->GetRotationMatrix(cam_rot_mat);
+//    vizImages.SetCameraPose(cam_pos, cam_rot_mat);
+    auto transform = cameraPoseEstimator->GetTransform();
+    auto obox_trans = transform*Eigen::Vector3f(obox_center[0], obox_center[1], obox_center[2]);
+    obox_t.translation[0] = obox_trans[0];obox_t.translation[1] = obox_trans[1];obox_t.translation[2] = obox_trans[2];
+    cameraPoseEstimator->GetRotationMatrix(obox_t.rotation);
+
+    auto box_trans = transform*Eigen::Vector3f(box_center[0], box_center[1], box_center[2]);
+    box_t.translation[0] = box_trans[0];box_t.translation[1] = box_trans[1];box_t.translation[2] = box_trans[2];
+    cameraPoseEstimator->GetRotationMatrix(box_t.rotation);
+
+    vizImages.Update(obox_h, obox_t, true);
+    vizImages.Update(box_h, box_t, true);
+  }
 
   vizImages.Stop();
   interface->stop();

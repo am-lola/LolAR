@@ -2,10 +2,10 @@ cmake_minimum_required(VERSION 2.8 FATAL_ERROR)
 
 project(lola-ar)
 
-option(BUILD_LOLA_PLAYBACK "Build lola log playback" FALSE)
+option(BUILD_LOLA_PLAYBACK "Build lola log playback" TRUE)
 option(BUILD_LOLA_LISTENER "Build online lola listener" TRUE)
-option(BUILD_MARKER_TRACKER "Build aruco marker tracker" FALSE)
-option(BUILD_ARUCO_GENERATOR "Build aruco marker board generator" FALSE)
+option(BUILD_MARKER_TRACKER "Build aruco marker tracker" TRUE)
+option(BUILD_ARUCO_GENERATOR "Build aruco marker board generator" TRUE)
 
 
 include_directories("src")

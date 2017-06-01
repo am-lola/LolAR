@@ -1,3 +1,6 @@
+#ifndef _SOCK_UTILS_H
+#define _SOCK_UTILS_H
+
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/types.h>
@@ -120,3 +123,4 @@ static socklen_t create_udp_socket(unsigned int port)
   return s;
 }
 
+#endif // SOCK_UTILS_H

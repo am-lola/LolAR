@@ -8,6 +8,7 @@
 #include <signal.h>
 
 #include <map>
+#include <functional>
 #include <algorithm>
 #include <thread>
 #include <string>
@@ -29,6 +30,9 @@
 #include "Obstacle.hpp"
 #include "Footstep.hpp"
 #include "sock_utils.hpp"
+#include "VisionListener.hpp"
+
+using namespace std::placeholders;
 
 /**
  * A client to collect and visualize data from LOLA
@@ -259,221 +263,110 @@ void deleteSurface(int surface_id)
   surface_id_map.erase(surface_id);
 }
 
-void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, float largeViewer, bool verbose)
+void onObstacleMsg(am2b_iface::ObstacleMessage* message, bool verbose)
 {
-  std::vector<unsigned char> buf;
-  buf.resize(BUFLEN);
-
-  while (!shuttingDown)
-  {
-    ssize_t ifaceHeaderSize = sizeof(am2b_iface::MsgHeader);
-    ssize_t visionHeaderSize = sizeof(am2b_iface::VisionMessageHeader);
-    ssize_t total_received = 0;
-    ssize_t total_expected = ifaceHeaderSize;
-
     if (verbose)
     {
-      std::cout << "Waiting for am2b_iface::msgHeader (" << ifaceHeaderSize << " bytes)..." << std::endl;
+      std::cout << "Received obstacle: " << std::endl;
+      std::cout << *message << std::endl;;
     }
 
-    while (total_received < total_expected)
+    // new obstacle to add to visualization
+    if (message->action == am2b_iface::SET_SSV)
     {
-      int recvd = 0;
-      recvd = read(socket_remote, &buf[total_received], total_expected - total_received);
-
-      if (recvd == 0) // connection died
-        break;
-      if (recvd == -1) // failed to read from socket
-        failWithError("read() failed!");
-
-      total_received += recvd;
-
-      if (verbose)
-      {
-        std::printf("(iface header) Received %zu / %zu total bytes from %s:%d\n", total_received, total_expected, inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port));
-      }
+      renderObstacle(getRealObstacle(message));
     }
-
-    if (total_received < ifaceHeaderSize)
-      break;
-
-    am2b_iface::MsgHeader* iface_header = (am2b_iface::MsgHeader*)buf.data();
-    if (verbose)
+    else if (message->action == am2b_iface::MODIFY_SSV)
     {
-      std::cout << "Received am2b_iface::MsgHeader: id = 0x" << std::hex << iface_header->id << std::dec << ", len = " << iface_header->len << std::endl;
+      updateObstacle(getRealObstacle(message));
     }
-
-    total_expected += iface_header->len;
-    if (buf.size() < total_expected)
+    else if (message->action == am2b_iface::REMOVE_SSV_ONLY_PART)
     {
-      if (verbose)
-      {
-        std::cout << "Resizing receive buffer to " << total_expected << " bytes" << std::endl;
-      }
-      buf.resize(total_expected);
-      iface_header = (am2b_iface::MsgHeader*)buf.data(); // update pointer after allocation
+      deleteObstacle(message->model_id);
     }
-    while (total_received < total_expected)
+    else if (message->action == am2b_iface::REMOVE_SSV_WHOLE_SEGMENT)
     {
-      int recvd = 0;
-      recvd = read(socket_remote, &buf[total_received], total_expected-total_received);
-
-      if (recvd == 0) // connection died
-        break;
-      if (recvd == -1) // failed to read from socket
-        failWithError("read() failed!");
-
-      total_received += recvd;
-      if (verbose)
-      {
-        std::printf("(message) Received %zu / %zu total bytes from %s:%d\n", total_received, total_expected, inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port));
-      }
-    }
-    if (total_received < total_expected)
-      break;
-
-    if (total_expected != total_received)
-    {
-      std::cout << "TOTAL RECVD: " << total_received << " : EXPECTED: " << sizeof(am2b_iface::MsgHeader) + iface_header->len << std::endl;
-
-      break;
+      deleteObstacle(message->model_id);
     }
     else
     {
-      total_received = 0;
+        std::cout << "ERROR: Unknown obstacle action: " << message->action << std::endl;
     }
+}
 
-
-    if (iface_header->id != am2b_iface::VISION_MESSAGE)
-    {
-      std::cout << "Received non-vision message type '0x" << std::hex << iface_header->id << std::dec << "' on obstacle port. Discarding it..." << std::endl;
-      continue;
-    }
-
-    am2b_iface::VisionMessageHeader* visionHeader = (am2b_iface::VisionMessageHeader*)(buf.data() + sizeof(am2b_iface::MsgHeader));
+void onSurfaceMsg(am2b_iface::SurfaceMessage* message, bool verbose=false)
+{
     if (verbose)
     {
-      std::cout << "Received VisionMessageHeader: " << *visionHeader << std::endl;
-      std::cout << "Waiting to receive a total of " << visionHeader->len + sizeof(am2b_iface::VisionMessageHeader) << " bytes..." << std::endl;
+      std::cout << "Received Surface:" << std::endl;
+      std::cout << "\tid: " << message->id << std::endl;
+      std::cout << "\taction: 0x"
+                << std::hex << message->action << std::dec << std::endl;
+      std::cout << "\tnormal: [" << message->normal[0]
+                                 << ", " << message->normal[1]
+                                 << ", " << message->normal[2]
+                                 << "]" << std::endl;
+      std::cout << "\tVertices:" << std::endl;
+      for (int i = 0; i < 8; i++)
+      {
+        std::cout << "\t\t[";
+        std::cout << message->vertices[i*3]
+                  << ", " << message->vertices[i*3 + 1]
+                  << ", " << message->vertices[i*3 + 2];
+        std::cout << "]" << std::endl;
+      }
     }
 
-    switch (visionHeader->type)
+    if (message->action == am2b_iface::SET_SURFACE)
     {
-      case am2b_iface::Message_Type::Obstacle:
-      {
-        am2b_iface::ObstacleMessage* message = (am2b_iface::ObstacleMessage*)(buf.data() + sizeof(am2b_iface::VisionMessageHeader) + sizeof(am2b_iface::MsgHeader));
-        if (verbose)
-        {
-          std::cout << "Received obstacle: " << std::endl;
-          std::cout << *message << std::endl;;
-        }
-
-        // new obstacle to add to visualization
-        if (message->action == am2b_iface::SET_SSV)
-        {
-          renderObstacle(getRealObstacle(message));
-        }
-        else if (message->action == am2b_iface::MODIFY_SSV)
-        {
-          updateObstacle(getRealObstacle(message));
-        }
-        else if (message->action == am2b_iface::REMOVE_SSV_ONLY_PART)
-        {
-          deleteObstacle(message->model_id);
-        }
-        else if (message->action == am2b_iface::REMOVE_SSV_WHOLE_SEGMENT)
-        {
-          deleteObstacle(message->model_id);
-        }
-
-        break;
-      }
-      case am2b_iface::Message_Type::Surface:
-      {
-        am2b_iface::SurfaceMessage* message = (am2b_iface::SurfaceMessage*)(buf.data() + sizeof(am2b_iface::VisionMessageHeader) + sizeof(am2b_iface::MsgHeader));
-        if (verbose)
-        {
-          std::cout << "Received Surface:" << std::endl;
-          std::cout << "\tid: " << message->id << std::endl;
-          std::cout << "\taction: 0x" << std::hex << message->action << std::dec << std::endl;
-          std::cout << "\tnormal: [" << message->normal[0] << ", " << message->normal[1] << ", " << message->normal[2] << "]" << std::endl;
-          std::cout << "\tVertices:" << std::endl;
-          for (int i = 0; i < 8; i++)
-          {
-            std::cout << "\t\t[";
-            std::cout << message->vertices[i*3] << ", " << message->vertices[i*3 + 1] << ", " << message->vertices[i*3 + 2];
-            std::cout << "]" << std::endl;
-          }
-        }
-
-        if (message->action == am2b_iface::SET_SURFACE)
-        {
-          std::cout << "Adding new surface: " << message->id << std::endl;
-          renderSurface(message->vertices, 8, message->id);
-        }
-        else if (message->action == am2b_iface::MODIFY_SURFACE)
-        {
-          std::cout << "Updating surface: " << message->id << std::endl;
-          updateSurface(message->vertices, 8, message->id);
-        }
-        else if (message->action == am2b_iface::REMOVE_SURFACE)
-        {
-          std::cout << "Deleting surface: " << message->id << std::endl;
-          deleteSurface(message->id);
-        }
-        else
-        {
-          std::cout << "Unknown surface operation: 0x" << std::hex << message->action << std::dec << std::endl;
-        }
-        break;
-      }
-      case am2b_iface::Message_Type::RGB_Image:
-      {
-        am2b_iface::RGBMessage* message = (am2b_iface::RGBMessage*)(buf.data() + sizeof(am2b_iface::VisionMessageHeader) + sizeof(am2b_iface::MsgHeader));
-        message->pixels = (unsigned char*)((char*)message + sizeof(am2b_iface::RGBMessage)); // fix pointer
-        if (verbose)
-        {
-          std::cout << "Received RGB Image:" << std::endl;
-          std::cout << "\tWidth:  " << message->width << std::endl;
-          std::cout << "\tHeight: " << message->height << std::endl;
-        }
-        if (largeViewer != 1)
-        {
-          viz.NotifyNewVideoFrame(message->width, message->height, message->pixels, largeViewer);
-        }
-        else
-        {
-          viz.NotifyNewVideoFrame(message->width, message->height, message->pixels);
-        }
-        break;
-      }
-      case am2b_iface::Message_Type::PointCloud:
-      {
-        am2b_iface::PointCloudMessage* message = (am2b_iface::PointCloudMessage*)(buf.data() + sizeof(am2b_iface::VisionMessageHeader) + sizeof(am2b_iface::MsgHeader));
-        message->data = (unsigned char*)((char*)message + sizeof(am2b_iface::PointCloudMessage));
-        if (verbose)
-        {
-          std::cout << "Received PointCloud" << std::endl;
-          std::cout << "\t# of points:    " << message->count << std::endl;
-          std::cout << "\tsize of points: " << message->format << " bytes" << std::endl;
-        }
-        pointcloud.pointData = reinterpret_cast<const void*>(message->data);
-        pointcloud.numPoints = message->count;
-        viz.Update(cloud_handle, pointcloud);
-        break;
-      }
-      default:
-      {
-        std::cout << "UNKNOWN message type: " << visionHeader->type << "!!" << std::endl;
-      }
+      std::cout << "Adding new surface: " << message->id << std::endl;
+      renderSurface(message->vertices, 8, message->id);
     }
+    else if (message->action == am2b_iface::MODIFY_SURFACE)
+    {
+      std::cout << "Updating surface: " << message->id << std::endl;
+      updateSurface(message->vertices, 8, message->id);
+    }
+    else if (message->action == am2b_iface::REMOVE_SURFACE)
+    {
+      std::cout << "Deleting surface: " << message->id << std::endl;
+      deleteSurface(message->id);
+    }
+    else
+    {
+      std::cout << "Unknown surface operation: 0x" << std::hex << message->action << std::dec << std::endl;
+    }
+}
 
-  }
+void onRGBMsg(am2b_iface::RGBMessage* message, float largeViewer=1.0, bool verbose=false)
+{
+    if (verbose)
+    {
+      std::cout << "Received RGB Image:" << std::endl;
+      std::cout << "\tWidth:  " << message->width << std::endl;
+      std::cout << "\tHeight: " << message->height << std::endl;
+    }
+    if (largeViewer != 1)
+    {
+      viz.NotifyNewVideoFrame(message->width, message->height, message->pixels, largeViewer);
+    }
+    else
+    {
+      viz.NotifyNewVideoFrame(message->width, message->height, message->pixels);
+    }
+}
 
-  std::cout << std::endl << "-------------------------------------------------" << std::endl;
-  std::cout << "Connection to client " << inet_ntoa(si_other.sin_addr) << ":" << ntohs(si_other.sin_port) << " terminated!" << std::endl;
-  std::cout << "-------------------------------------------------" << std::endl << std::endl;
-  close(socket_remote);
+void onPointCloudMsg(am2b_iface::PointCloudMessage* message, bool verbose=false)
+{
+    if (verbose)
+    {
+      std::cout << "Received PointCloud" << std::endl;
+      std::cout << "\t# of points:    " << message->count << std::endl;
+      std::cout << "\tsize of points: " << message->format << " bytes" << std::endl;
+    }
+    pointcloud.pointData = reinterpret_cast<const void*>(message->data);
+    pointcloud.numPoints = message->count;
+    viz.Update(cloud_handle, pointcloud);
 }
 
 void readFootstepsFrom(int socket_remote, const std::string host_addr, bool verbose)
@@ -571,51 +464,6 @@ void readFootstepsFrom(int socket_remote, const std::string host_addr, bool verb
   std::cout << "Connection to server " << host_addr << " terminated!" << std::endl;
   std::cout << "-------------------------------------------------" << std::endl << std::endl;
   close(socket_remote);
-}
-
-void listen(int sock_obstacles, float largeViewer, bool verbose)
-{
-  struct sockaddr_in si_other;
-  int s_other;
-  socklen_t slen=sizeof(si_other);
-
-  while(!shuttingDown)
-  {
-    std::cout << "Polling for new connections..." << std::endl;
-
-    fd_set readfds; FD_ZERO(&readfds);
-    int maxfd, fd;
-
-    maxfd = -1;
-    FD_SET(sock_obstacles, &readfds);
-    maxfd = sock_obstacles;
-
-    if (select(maxfd + 1, &readfds, NULL, NULL, NULL) < 0)
-      continue;
-    fd = -1;
-    if (FD_ISSET(sock_obstacles, &readfds))
-    {
-      fd = sock_obstacles;
-    }
-
-    if (fd == -1)
-      failWithError("Invalid socket returned from select!");
-
-    s_other = accept(fd, (struct sockaddr* ) &si_other, &slen);
-    if (s_other < 0)
-      failWithError("accept failed!");
-
-    std::cout << std::endl << "-------------------------------------------------" << std::endl;
-    std::cout << "NEW Connection to " << inet_ntoa(si_other.sin_addr) << ":" << htons(si_other.sin_port) << std::endl;
-    std::cout << "-------------------------------------------------" << std::endl << std::endl;
-
-    // receive data from new connection
-    if (fd == sock_obstacles)
-    {
-      std::thread servicer(readVisionMessagesFrom, s_other, si_other, largeViewer, verbose);
-      servicer.detach();
-    }
-  }
 }
 
 void printvec(float* vec, unsigned int len, std::ostream& out)
@@ -818,10 +666,17 @@ int main(int argc, char* argv[])
     servicer.detach();
   }
 
+  VisionListener vl(params.obstaclePort, params.verbose);
   if (params.obstaclePort > 0)
   {
-    obstacle_socket = create_server_socket(params.obstaclePort);
-    listen(obstacle_socket, params.largeViewer, params.verbose);
+    vl.onConnect([](std::string host)->void{std::cout << "[vision] Connected to: " << host << std::endl;});
+    vl.onError([](std::string err)->void{std::cout << "ERROR [vision]: " << err << std::endl;});
+    vl.onDisconnect([](std::string host)->void{std::cout << "[vision] Disconnected from: " << host << std::endl;});
+    vl.onObstacleMessage(std::bind(&onObstacleMsg, _1, params.verbose));
+    vl.onSurfaceMessage(std::bind(&onSurfaceMsg, _1, params.verbose));
+    vl.onRGBMessage(std::bind(&onRGBMsg, _1, params.largeViewer, params.verbose));
+    vl.onPointCloudMessage(std::bind(&onPointCloudMsg, _1, params.verbose));
+    vl.listen();
   }
 
   while(!shuttingDown)

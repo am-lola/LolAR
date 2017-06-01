@@ -6,6 +6,7 @@
 #include <pcl/common/transforms.h>
 #include <pcl/io/openni_grabber.h>
 #include <pcl/io/oni_grabber.h>
+#include <pcl/io/pcd_io.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 
@@ -29,6 +30,9 @@
 #include "FloorDetector.hpp"
 
 typedef pcl::PointXYZ PointT;
+
+bool recording = false; /// TODO: Don't keep this here...
+std::string log_dir;
 
 ar::ARVisualizer vizImages;
 
@@ -92,6 +96,15 @@ void image_callback (const boost::shared_ptr<openni_wrapper::Image>& image)
 
     // send image data to visualizer
     vizImages.NotifyNewVideoFrame(image->getWidth(), image->getHeight(), img_data);
+
+    if (recording)
+    {
+        static unsigned int img_idx = 0;
+        std::stringstream filename;
+        filename << log_dir << "/image_" << std::setfill('0') << std::setw(4) << img_idx << ".png";
+        cv::imwrite(filename.str(), bgrImage);
+        img_idx++;
+    }
   }
 }
 
@@ -101,6 +114,15 @@ void image_callback (const boost::shared_ptr<openni_wrapper::Image>& image)
 void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
 {
     cameraPoseEstimator->Update(cloud);
+
+    if (recording)
+    {
+        static unsigned int cloud_idx = 0;
+        std::stringstream filename;
+        filename << log_dir << "/cloud_" << std::setfill('0') << std::setw(4) << cloud_idx << ".pcd";
+        pcl::io::savePCDFileBinary(filename.str(), *cloud);
+        cloud_idx++;
+    }
 }
 
 /*
@@ -111,6 +133,29 @@ void pose_cb (HR_Pose_Red* new_pose, CameraPoseEstimator<PointT>* cameraPoseEsti
   std::cout << "Received new robot pose!" << std::endl;
     /// TODO: Set marker->world transform according to new pose data
 //  cameraPoseEstimator->SetMarkerTransform(Eigen::Translation3f(marker_pos) * Eigen::Affine3f(marker_rot));
+
+  if (recording)
+  {
+    std::ofstream tf_out;
+    tf_out.open(log_dir + "/params.txt", std::ofstream::app);
+    for (size_t i = 0; i < 3; ++i)
+    {
+        tf_out << new_pose->t_wr_cl[i] << "\t";
+    }
+    for (size_t i = 0; i < 9; ++i)
+    {
+        tf_out << new_pose->R_wr_cl[i] << "\t";
+    }
+    for (size_t i = 0; i < 3; ++i)
+    {
+        tf_out << new_pose->t_stance_odo[i] << "\t";
+    }
+    tf_out << new_pose->phi_z_odo << "\t";
+    tf_out << new_pose->stance << "\t";
+    tf_out << new_pose->stamp;
+    tf_out << std::endl;
+    tf_out.close();
+  }
 }
 
 /*
@@ -175,6 +220,24 @@ int main(int argc, char* argv[])
   if (!parse_args(argc, argv, &params))
   {
     return 0;
+  }
+
+  recording = params.record;
+  if (recording)
+  {
+    log_dir = makeStampedDirectory("recording_");
+    std::ofstream tf_out(log_dir + "/params.txt");
+    if (tf_out.is_open())
+    {
+      tf_out << "# t_wr_cl[0]\tt_wr_cl[1]\tt_wr_cl[2]\t"
+             << "R_wr_cl[0][0]\tR_wr_cl[0][1]\tR_wr_cl[0][2]\t"
+             << "R_wr_cl[1][0]\tR_wr_cl[1][1]\tR_wr_cl[1][2]\t"
+             << "R_wr_cl[2][0]\tR_wr_cl[2][1]\tR_wr_cl[2][2]\t"
+             << "t_stance_odo[0]\tt_stance_odo[1]\tt_stance_odo[2]\t"
+             << "phi_z_odo\tstance\tstamp"
+             << std::endl;
+      tf_out.close();
+    }
   }
 
   std::cout << "Opening sensor" << std::endl;

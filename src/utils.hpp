@@ -40,6 +40,27 @@ bool checkPath(std::string filename)
   return (stat (filename.c_str(), &buffer) == 0);
 }
 
+// creates a directory with a name based on current timestamp
+std::string static makeStampedDirectory(std::string prefix)
+{
+    auto now = std::time(nullptr);
+    char buf[sizeof("YYYY-MM-DD_HHMMSS")];
+    std::string dirname = prefix + std::string(buf, buf + std::strftime(buf, sizeof(buf), "%F_%H%M%S", std::gmtime(&now)));
+#ifdef USE_BOOST_FILESYSTEM
+    if (boost::filesystem::create_directories(dirname))
+        return dirname;
+    else
+        throw std::runtime_error("Could not create directory: " + dirname);
+#else
+    const int dir_err = mkdir(dirname.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+    if (-1 == dir_err)
+    {
+        throw std::runtime_error("Could not create directory: " + dirname + "\n\t\t" + strerror(errno));
+    }
+    return dirname;
+#endif
+}
+
 /*
   Copies the raw data from the given cv::Mat to dst_array
   Based on the sample code from: docs.opencv.org/2.4/doc/tutorials/core/how_to_scan_images/how_to_scan_images.html

@@ -18,6 +18,10 @@
 
 #include <ARVisualizer.hpp>
 
+#include <tclap/CmdLine.h>
+
+#include "VisionListener.hpp"
+#include "PoseListener.hpp"
 #include "utils.hpp"
 #include "CameraPoseEstimator.hpp"
 #include "CameraIntrinsics.hpp"
@@ -53,6 +57,12 @@ double camera_up[3]       = { 0.0, -1.0, 0.0 }; // only correct when robot is no
 double camera_forward[3]  = { 0.0,  0.0, 1.0 };
 double camera_position[3] = { 0.0,  0.0, 0.0 };
 
+struct ParsedParams
+{
+    unsigned int visionPort = 0; // port to receive vision messages on
+    unsigned int posePort   = 0; // port to receive pose data on
+    bool record = false;          // whether or not to record a log
+};
 
 /*
   This callback is called from PCL every time a new RGB image is available
@@ -93,8 +103,80 @@ void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
     cameraPoseEstimator->Update(cloud);
 }
 
+/*
+ * This callback is called when we receive a new robot pose
+*/
+void pose_cb (HR_Pose_Red* new_pose, CameraPoseEstimator<PointT>* cameraPoseEstimator)
+{
+  std::cout << "Received new robot pose!" << std::endl;
+    /// TODO: Set marker->world transform according to new pose data
+//  cameraPoseEstimator->SetMarkerTransform(Eigen::Translation3f(marker_pos) * Eigen::Affine3f(marker_rot));
+}
+
+/*
+ * This callback is called when an obstacle is detected, changed, or removed
+*/
+void obstacle_cb (am2b_iface::ObstacleMessage* message, ar::ARVisualizer* viz)
+{
+  std::cout << "Received obstacle: " << std::endl;
+  std::cout << *message << std::endl;
+
+  if (message->action == am2b_iface::SET_SSV)
+  {
+      // add obstacle
+  }
+  else if (message->action == am2b_iface::MODIFY_SSV)
+  {
+    // update obstacle
+  }
+  else if (message->action == am2b_iface::REMOVE_SSV_ONLY_PART)
+  {
+  }
+  else if (message->action == am2b_iface::REMOVE_SSV_WHOLE_SEGMENT)
+  {
+  }
+  else
+  {
+    std::cout << "[vision] Received unknown obstacle action: " << message->action << std::endl;
+  }
+}
+
+bool parse_args(int argc, char* argv[],  ParsedParams* params)
+{
+  try {
+    TCLAP::CmdLine cmd("Lola AR View", ' ', "0.1");
+    TCLAP::ValueArg<unsigned int> visionPort("l", "lepp",
+                                             "Port to listen on for vision data from lepp",
+                                             false, 0, "unsigned int");
+    TCLAP::ValueArg<unsigned int> posePort("p", "pose",
+                                             "Port to listen on for robot pose data",
+                                             false, 0, "unsigned int");
+    TCLAP::SwitchArg record("r", "record",
+                            "If set, all rendered data will also be saved to disk.",
+                            cmd, false);
+    cmd.add(visionPort);
+    cmd.add(posePort);
+    cmd.parse(argc, argv);
+
+    params->visionPort = visionPort.getValue();
+    params->posePort   = posePort.getValue();
+    params->record     = record.getValue();
+  }
+  catch (TCLAP::ArgException& e) {
+      std::cerr << "Error in argument " << e.argId() << ": " << e.error() << std::endl;
+      return false;
+  }
+  return true;
+}
+
 int main(int argc, char* argv[])
 {
+  ParsedParams params;
+  if (!parse_args(argc, argv, &params))
+  {
+    return 0;
+  }
+
   std::cout << "Opening sensor" << std::endl;
   interface = new pcl::OpenNIGrabber("", pcl::OpenNIGrabber::OpenNI_VGA_30Hz);
 
@@ -167,6 +249,24 @@ int main(int argc, char* argv[])
   Eigen::Vector3f marker_pos(0.0f, -1.2f, 0.0f);
   Eigen::AngleAxisf marker_rot(M_PI/4.0f, Eigen::Vector3f::UnitZ());
   auto marker_rot_mat = marker_rot.matrix();
+
+  
+  PoseListener pl(params.posePort, true);
+  if (params.posePort > 0)
+  {
+    pl.onError([](std::string err)->void{std::cout << "ERROR [pose]: " << err << std::endl;});
+    pl.onNewPose(std::bind(&pose_cb, std::placeholders::_1, cameraPoseEstimator));
+    pl.listen();
+  }
+
+  VisionListener vl(params.visionPort, true);
+  if (params.visionPort > 0)
+  {
+    vl.onConnect([](std::string host)->void{std::cout << "[vision] Connected to: " << host << std::endl;});
+    vl.onDisconnect([](std::string host)->void{std::cout << "[vision] Disconnected from: " << host << std::endl;});
+    vl.onObstacleMessage(std::bind(&obstacle_cb, std::placeholders::_1, &vizImages));
+    vl.listen();
+  }
 
   cameraPoseEstimator->SetMarkerTransform(Eigen::Translation3f(marker_pos) * Eigen::Affine3f(marker_rot));
   double cam_pos[3] = {0.0, 0.0, 0.0};

@@ -8,6 +8,7 @@
 ///
 //////////////////////////////////////////
 #include <functional>
+#include <thread>
 
 #include <fcntl.h>
 

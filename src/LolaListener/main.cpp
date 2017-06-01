@@ -2,16 +2,18 @@
 #include <netinet/in.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <netdb.h>
 #include <unistd.h>
 #include <signal.h>
-#include <map>
 
+#include <map>
 #include <algorithm>
 #include <thread>
 #include <string>
 #include <vector>
 #include <iostream>
+#include <fstream>
 
 #include <iface_msg.hpp>
 #include <iface_sig_msg.hpp>
@@ -26,7 +28,7 @@
 
 #include "Obstacle.hpp"
 #include "Footstep.hpp"
-
+#include "sock_utils.hpp"
 
 /**
  * A client to collect and visualize data from LOLA
@@ -55,6 +57,27 @@ struct ParsedParams
   bool verbose = false;
 };
 
+// creates a directory with a name based on current timestamp
+std::string static makeStampedDirectory(std::string prefix)
+{
+  auto now = std::time(nullptr);
+  char buf[sizeof("YYYY-MM-DD_HHMMSS")];
+  std::string dirname = prefix + std::string(buf, buf + std::strftime(buf, sizeof(buf), "%F_%H%M%S", std::gmtime(&now)));
+#ifdef USE_BOOST_FILESYSTEM
+  if (boost::filesystem::create_directories(dirname))
+    return dirname;
+  else
+    throw std::runtime_error("Could not create directory: " + dirname);
+#else
+  const int dir_err = mkdir(dirname.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+  if (-1 == dir_err)
+  {
+    throw std::runtime_error("Could not create directory: " + dirname + "\n\t\t" + strerror(errno));
+  }
+  return dirname;
+#endif
+}
+
 bool parse_args(int argc, char* argv[], ParsedParams* params)
 {
   if (argc <= 1)
@@ -72,11 +95,11 @@ bool parse_args(int argc, char* argv[], ParsedParams* params)
                                                "Hostname to connect to for footstep data, in the form: ' ip:port '. With lola, -f 192.168.0.7:61448",
                                                false, "", "hostname:port  or  ip:port");
     TCLAP::ValueArg<unsigned int> posePort("p", "poseport",
-                                               "Port to listen on for pose data. With lola_state_server, -p 53249",
-                                               false, 0, "unsigned int");
+                                                "Port to listen on for pose data. With lola_state_server, -p 53249",
+                                                false, 0, "unsigned int");
     TCLAP::ValueArg<float> largeViewer("l", "largeviewer",
-                                               "Factor to extend the viewer in order to include an area bigger than the vision message. Useful, for example, for showing footsteps in first person AR. Default: 1, Typical value: 2",
-                                               false, 1, "float");
+                                            "Factor to extend the viewer in order to include an area bigger than the vision message. Useful, for example, for showing footsteps in first person AR. Default: 1, Typical value: 2",
+                                            false, 1, "float");
     TCLAP::SwitchArg verbose("v", "verbose",
                              "Verbose output", cmd, false);
     cmd.add(obstaclePort);
@@ -123,12 +146,6 @@ Obstacle getRealObstacle(am2b_iface::ObstacleMessage* ob)
   }
 
   return real;
-}
-
-void failWithError(const std::string s)
-{
-  perror(s.c_str());
-  exit(1);
 }
 
 void renderFootstep(Footstep footstep)
@@ -240,11 +257,6 @@ void deleteSurface(int surface_id)
 {
   viz.Remove(surface_id_map[surface_id]);
   surface_id_map.erase(surface_id);
-}
-
-void process(am2b_iface::VisionMessage* message)
-{
-
 }
 
 void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, float largeViewer, bool verbose)
@@ -433,7 +445,6 @@ void readVisionMessagesFrom(int socket_remote, const sockaddr_in& si_other, floa
         {
           viz.NotifyNewVideoFrame(message->width, message->height, message->pixels);
         }
-
         break;
       }
       case am2b_iface::Message_Type::PointCloud:
@@ -560,103 +571,6 @@ void readFootstepsFrom(int socket_remote, const std::string host_addr, bool verb
   std::cout << "Connection to server " << host_addr << " terminated!" << std::endl;
   std::cout << "-------------------------------------------------" << std::endl << std::endl;
   close(socket_remote);
-}
-
-int create_server_socket(unsigned int port)
-{
-  struct sockaddr_in si_me;
-  int s;
-
-  // create & bind socket
-  if ((s=socket(AF_INET, SOCK_STREAM, 0))==-1)
-    failWithError("creating socket failed!");
-
-  si_me.sin_family = AF_INET;
-  si_me.sin_port = htons(port);
-  si_me.sin_addr.s_addr = htonl(INADDR_ANY);
-  if (bind(s, (sockaddr*)&si_me, sizeof(si_me))==-1)
-    failWithError("bind failed!");
-
-  if (listen(s, 5) != 0)
-    failWithError("listen failed!");
-
-  return s;
-}
-
-int create_client_socket(unsigned int port, std::string host)
-{
-  struct addrinfo hints, *res;
-  struct sockaddr_in server_addr;
-  int s;
-
-  // get server info for connection
-  memset(&hints, 0, sizeof(hints));
-  hints.ai_family   = AF_UNSPEC;
-  hints.ai_socktype = SOCK_STREAM;
-  hints.ai_protocol = IPPROTO_TCP;
-  int n = getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints, &res);
-  if (n != 0)
-    failWithError("Could not get host info for: " + host);
-
-  std::cout << "Attempting to connect to: " << host << ":" << port << std::endl;
-
-  // connect to server
-  bool connection_success = false;
-  for (auto rp = res; rp != NULL; rp = rp->ai_next) // check all addresses found by getaddrinfo
-  {
-    s = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-    if (s < 0)
-      continue; // could not open socket
-
-    // attempt to connect
-    if (connect(s, rp->ai_addr, rp->ai_addrlen) == 0)
-    {
-      std::cout << "Successfully connected to " << host << ":" << port << std::endl;
-      connection_success = true;
-      break;
-    }
-    else
-    {
-      perror("Could not connect");
-    }
-
-    close(s); // if connection failed, close socket and move on to the next address
-  }
-
-  if (!connection_success)
-  {
-    std::cout << "Connection to " << host << ":" << port << " failed! Exiting..." << std::endl;
-    exit(1);
-  }
-
-  freeaddrinfo(res);
-  return s;
-}
-
-socklen_t create_udp_socket(unsigned int port)
-{
-  struct sockaddr_in si_me;
-  socklen_t s;
-  int broadcast = 1;
-  int reuseport = 1;
-
-  // create & bind socket
-  if ((s=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
-    failWithError("Creating UDP socket failed!");
-
-  if (setsockopt(s, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast)) != 0)
-    failWithError("Setting broadcast flag on UDP socket failed!");
-
-  if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &reuseport, sizeof(reuseport)) != 0)
-    failWithError("Setting Reuse Addr flag on UDP socket failed!");
-
-  si_me.sin_family = AF_INET;
-  si_me.sin_port = htons(port);
-  si_me.sin_addr.s_addr = htonl(INADDR_ANY);
-  if (bind(s, (sockaddr*)&si_me, sizeof(si_me)) == -1)
-    failWithError("Binding UDP socket failed!");
-
-  return s;
 }
 
 void listen(int sock_obstacles, float largeViewer, bool verbose)

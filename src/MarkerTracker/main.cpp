@@ -12,6 +12,7 @@
 
 #include <glm/gtx/euler_angles.hpp>
 
+#include <chrono>
 #include <fstream>
 #include <sstream>
 #include <vector>
@@ -33,6 +34,7 @@ typedef pcl::PointXYZ PointT;
 
 bool recording = false; /// TODO: Don't keep this here...
 std::string log_dir;
+double time_elapsed = 0.0f;
 
 ar::ARVisualizer vizImages;
 
@@ -101,9 +103,14 @@ void image_callback (const boost::shared_ptr<openni_wrapper::Image>& image)
     {
         static unsigned int img_idx = 0;
         std::stringstream filename;
-        filename << log_dir << "/image_" << std::setfill('0') << std::setw(4) << img_idx << ".png";
-        cv::imwrite(filename.str(), bgrImage);
+        filename << "image_" << std::setfill('0') << std::setw(4) << img_idx << ".png";
+        cv::imwrite(log_dir + "/" + filename.str(), bgrImage);
         img_idx++;
+
+        std::ofstream metalog;
+        metalog.open(log_dir + "/metalog.txt", std::ofstream::app);
+        metalog << time_elapsed << "\t" << filename.str() << std::endl;
+        metalog.close(); 
     }
   }
 }
@@ -119,9 +126,14 @@ void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
     {
         static unsigned int cloud_idx = 0;
         std::stringstream filename;
-        filename << log_dir << "/cloud_" << std::setfill('0') << std::setw(4) << cloud_idx << ".pcd";
-        pcl::io::savePCDFileBinary(filename.str(), *cloud);
+        filename << "cloud_" << std::setfill('0') << std::setw(4) << cloud_idx << ".pcd";
+        pcl::io::savePCDFileBinary(log_dir + "/" + filename.str(), *cloud);
         cloud_idx++;
+        
+        std::ofstream metalog;
+        metalog.open(log_dir + "/metalog.txt", std::ofstream::app);
+        metalog << time_elapsed << "\t" << filename.str() << std::endl;
+        metalog.close(); 
     }
 }
 
@@ -222,6 +234,7 @@ int main(int argc, char* argv[])
     return 0;
   }
 
+  auto start_time = std::chrono::system_clock::now();
   recording = params.record;
   if (recording)
   {
@@ -237,6 +250,12 @@ int main(int argc, char* argv[])
              << "phi_z_odo\tstance\tstamp"
              << std::endl;
       tf_out.close();
+
+      std::ofstream metalog(log_dir + "/metalog.txt");
+      if (metalog.is_open())
+      {
+        metalog << "# this file tracks relative creation times of other log files" << std::endl;
+      }
     }
   }
 
@@ -336,6 +355,8 @@ int main(int argc, char* argv[])
   double cam_rot_mat[3][3];
   while(1)
   {
+    std::chrono::duration<double> diff = (std::chrono::system_clock::now() - start_time);
+    time_elapsed = diff.count();
     cameraPoseEstimator->GetPosition(cam_pos);
     cameraPoseEstimator->GetRotationMatrix(cam_rot_mat);
     vizImages.SetCameraPose(cam_pos, cam_rot_mat);

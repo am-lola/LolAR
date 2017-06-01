@@ -97,11 +97,6 @@ private:
             f(std::forward<Args>(args)...);
     }
 
-    std::string hostString(const sockaddr_in& s)
-    {
-        return (std::string)(inet_ntoa(s.sin_addr)) + ":" + std::to_string(ntohs(s.sin_port));
-    }
-
     void listen_impl()
     {
         struct sockaddr_in si_other;

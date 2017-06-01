@@ -22,6 +22,12 @@ static void failWithError(const std::string s)
   exit(1);
 }
 
+// gets <hostname>:<port> from an address
+std::string hostString(const sockaddr_in& s)
+{
+    return (std::string)(inet_ntoa(s.sin_addr)) + ":" + std::to_string(ntohs(s.sin_port));
+}
+
 // creates a new TCP socket on the given port
 // which can be used to listen for new connections
 static int create_server_socket(unsigned int port)

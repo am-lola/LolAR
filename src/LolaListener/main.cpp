@@ -30,6 +30,7 @@
 #include "Obstacle.hpp"
 #include "Footstep.hpp"
 #include "sock_utils.hpp"
+#include "PoseListener.hpp"
 #include "VisionListener.hpp"
 
 using namespace std::placeholders;
@@ -556,26 +557,8 @@ void getOrientation(float R_wr_cl[3][3], double rotation_matrix[3][3], double or
 }
 
 
-
-void udp_pose_listen(socklen_t s, bool verbose)
+void onNewPose(HR_Pose_Red* new_pose, bool verbose=false)
 {
-  char buf[BUFLEN];
-  sockaddr_in si_other;
-  unsigned int slen = sizeof(sockaddr);
-
-  while(!shuttingDown)
-  {
-    // clear buf
-    memset(buf, 0, BUFLEN-1);
-
-    // wait for message
-    int nrecvd = recvfrom(s, buf, BUFLEN-1, 0, (sockaddr*)&si_other, &slen);
-
-    if (verbose)
-      std::cout << "Received " << nrecvd << " bytes from: " << inet_ntoa(si_other.sin_addr) << std::endl;
-
-    HR_Pose_Red* new_pose = (HR_Pose_Red*)buf;
-
     if (verbose)
     {
       std::cout << "New Pose:" << std::endl;
@@ -605,8 +588,6 @@ void udp_pose_listen(socklen_t s, bool verbose)
     getTranslation(rotation_matrix, new_pose->t_wr_cl, new_pose->t_stance_odo, cam_position);
     getOrientation(R_wr_cl_mat, rotation_matrix, cam_orienation);
     viz.SetCameraPose(cam_position, cam_orienation);
-
-  }
 }
 
 void onSigInt(int s)
@@ -649,13 +630,13 @@ int main(int argc, char* argv[])
   viz.SetCameraIntrinsics(camera_matrix);
   cloud_handle = viz.Add(pointcloud);
   int footstep_socket = 0;
-  int pose_socket     = 0;
 
+  PoseListener pl(params.posePort, params.verbose);
   if (params.posePort > 0)
   {
-    pose_socket = create_udp_socket(params.posePort);
-    std::thread servicer(udp_pose_listen, pose_socket, params.verbose);
-    servicer.detach();
+    pl.onError([](std::string err)->void{std::cout << "ERROR [pose]: " << err << std::endl;});
+    pl.onNewPose(std::bind(&onNewPose, _1, params.verbose));
+    pl.listen();
   }
 
   if (params.footstepPort > 0)
@@ -681,13 +662,13 @@ int main(int argc, char* argv[])
   while(!shuttingDown)
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
-  std::cout << "Closing open sockets..." << std::endl;
+  std::cout << "Closing open connections..." << std::endl;
   if (footstep_socket > 0)
     close(footstep_socket);
   if (vl.listening())
     vl.stop();
-  if (pose_socket > 0)
-    close(pose_socket);
+  if (pl.listening())
+    pl.stop();
 
   std::cout << "Stopping visualizer..." << std::endl;
   viz.Stop();

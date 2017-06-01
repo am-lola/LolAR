@@ -9,6 +9,8 @@
 //////////////////////////////////////////
 #include <functional>
 
+#include <fcntl.h>
+
 #include <iface_msg.hpp>
 #include <iface_vision_msg.hpp>
 #include "sock_utils.hpp"
@@ -44,11 +46,21 @@ public:
         _listener = std::thread(&VisionListener::listen_impl, this);
     }
 
+    // gets current listening state
+    bool listening()
+    {
+        return _listening;
+    }
+
     // stop listening & close any active connections
     void stop() 
     {
-        _listening = false;
-        _listener.join();
+        if (_listening)
+        {
+            _listening = false;
+            if (_listener.joinable())
+                _listener.join();
+        }
     }
 
     // callback connections
@@ -95,12 +107,15 @@ private:
         struct sockaddr_in si_other;
         int s_other;
         socklen_t slen=sizeof(si_other);
-
+        struct timeval timeout; // timeout for select
         _socket = create_server_socket(_port);
+        fcntl(_socket, F_SETFL, O_NONBLOCK);
         _listening = true;
 
         while( _listening )
         {
+            timeout.tv_sec = 0;
+            timeout.tv_usec = 500000; // 0.5 seconds
             fd_set readfds; FD_ZERO(&readfds);
             int maxfd, fd;
 
@@ -108,7 +123,7 @@ private:
             FD_SET(_socket, &readfds);
             maxfd = _socket;
 
-            if (select(maxfd + 1, &readfds, NULL, NULL, NULL) < 0)
+            if (select(maxfd + 1, &readfds, NULL, NULL, &timeout) <= 0)
                 continue;
             fd = -1;
 

@@ -649,7 +649,6 @@ int main(int argc, char* argv[])
   viz.SetCameraIntrinsics(camera_matrix);
   cloud_handle = viz.Add(pointcloud);
   int footstep_socket = 0;
-  int obstacle_socket = 0;
   int pose_socket     = 0;
 
   if (params.posePort > 0)
@@ -685,8 +684,8 @@ int main(int argc, char* argv[])
   std::cout << "Closing open sockets..." << std::endl;
   if (footstep_socket > 0)
     close(footstep_socket);
-  if (obstacle_socket > 0)
-    close(obstacle_socket);
+  if (vl.listening())
+    vl.stop();
   if (pose_socket > 0)
     close(pose_socket);
 

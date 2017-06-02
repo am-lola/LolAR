@@ -73,6 +73,10 @@ struct ParsedParams
     bool record = false;          // whether or not to record a log
 };
 
+void save_image (const cv::Mat& img, std::string filename)
+{
+  cv::imwrite(filename, img);
+}
 /*
   This callback is called from PCL every time a new RGB image is available
 */
@@ -107,7 +111,8 @@ void image_callback (const boost::shared_ptr<openni_wrapper::Image>& image)
         static unsigned int img_idx = 0;
         std::stringstream filename;
         filename << "image_" << std::setfill('0') << std::setw(4) << img_idx << ".png";
-        cv::imwrite(log_dir + "/" + filename.str(), bgrImage);
+        std::thread t(&save_image, bgrImage, log_dir + "/" + filename.str());
+        t.detach();
         img_idx++;
 
         std::ofstream metalog;
@@ -118,11 +123,17 @@ void image_callback (const boost::shared_ptr<openni_wrapper::Image>& image)
   }
 }
 
+void saveCloud(const pcl::PointCloud<PointT>::ConstPtr& cloud, std::string filename)
+{
+  pcl::io::savePCDFileBinaryCompressed(filename, *cloud);
+}
+
 /*
   This callback is called from PCL every time a new point cloud is available
 */
 void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
 {
+    auto t_s = std::chrono::system_clock::now();
     cameraPoseEstimator->Update(cloud);
 
     if (recording)
@@ -130,7 +141,8 @@ void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
         static unsigned int cloud_idx = 0;
         std::stringstream filename;
         filename << "cloud_" << std::setfill('0') << std::setw(4) << cloud_idx << ".pcd";
-        pcl::io::savePCDFileBinary(log_dir + "/" + filename.str(), *cloud);
+        std::thread t(&saveCloud, cloud, log_dir + "/" + filename.str());
+        t.detach();
         cloud_idx++;
 
         std::ofstream metalog;
@@ -138,6 +150,10 @@ void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
         metalog << time_elapsed << "\t" << filename.str() << std::endl;
         metalog.close();
     }
+
+    auto t_f = std::chrono::system_clock::now();
+    std::chrono::duration<double> t_d = t_f - t_s;
+    std::cout << "cloud cb: " << t_d.count() << "s" << std::endl;
 }
 
 /*

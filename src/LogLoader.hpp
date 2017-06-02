@@ -3,7 +3,7 @@
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
-#include <pcl/pcd_io.h>
+#include <pcl/io/pcd_io.h>
 
 #include <iostream>
 #include <fstream>
@@ -16,6 +16,7 @@
 /// A single event which occurred during recording`
 /// e.g. an obstacle added or point cloud received
 ///////////////////////////////////////////////////////////
+typedef pcl::PointXYZ PointT;
 
 class LogEvent_
 {
@@ -32,6 +33,34 @@ public:
 
 protected:
   double _timestamp; // relative time the event occurred at
+};
+
+template <typename PointT>
+class PointCloudEvent : public LogEvent_
+{
+public:
+  PointCloudEvent(double time, std::string filename)
+  {
+    this->_timestamp = time;
+    pcl::io::loadPCDFile<PointT>(filename, _cloud);
+  }
+
+private:
+  pcl::PointCloud<PointT> _cloud;
+};
+
+class RGBImageEvent : public LogEvent_
+{
+public:
+  RGBImageEvent(double time, std::string filename)
+  {
+    this->_timestamp = time;
+  }
+
+private:
+  char* _image;
+  unsigned int _width;
+  unsigned int _height;
 };
 
 template <typename T>
@@ -63,7 +92,14 @@ public:
     std::string file;
     while (metafile >> time >> file)
     {
-      _log.push_back(LogEvent<std::string>(time, file));
+      if (file.find(".pcd") != std::string::npos)
+      {
+        _log.push_back(PointCloudEvent<PointT>(time, file));
+      }
+      else if (file.find(".png") != std::string::npos)
+      {
+        _log.push_back(RGBImageEvent(time, file));
+      }
     }
   }
 

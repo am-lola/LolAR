@@ -32,6 +32,7 @@
 #include "sock_utils.hpp"
 #include "PoseListener.hpp"
 #include "VisionListener.hpp"
+#include "FootstepListener.hpp"
 
 using namespace std::placeholders;
 
@@ -351,101 +352,17 @@ void onPointCloudMsg(am2b_iface::PointCloudMessage* message, bool verbose=false)
     viz.Update(cloud_handle, pointcloud);
 }
 
-void readFootstepsFrom(int socket_remote, const std::string host_addr, bool verbose)
+void onNewFootstep(Footstep step, bool verbose=false)
 {
-  unsigned char buf[BUFLEN];
-
-  std::cout << "Attempting to subscribe to footstep data from " << host_addr << std::endl;
-  am2b_iface::MsgId footstep_sub_id = __DOM_WPATT; //am2b_iface::STEPSEQ_AR_VIZUALIZATION;
-  am2b_iface::MsgHeader footstep_sub = { am2b_iface::ps::SIG_PS_SUBSCRIBE, sizeof(am2b_iface::MsgId)};
-
-  size_t sent = write(socket_remote, (unsigned char*)&footstep_sub, sizeof(footstep_sub));
-  if (sent <= 0)
-    std::cout << "Error sending subscribe request!" << std::endl;
-  sent = write(socket_remote, (unsigned char*)&footstep_sub_id, sizeof(footstep_sub_id));
-  if (sent <= 0)
-    std::cout << "Error sending footstep sub ID!" << std::endl;
-
-  std::cout << "Subscribed?" << std::endl;
-
-  while (!shuttingDown)
+  if (verbose)
   {
-    std::fill(buf, buf+BUFLEN, 0);
-    ssize_t total_received = 0;
-    ssize_t header_size = sizeof(am2b_iface::MsgHeader);
-    ssize_t step_size = sizeof(am2b_iface::struct_data_stepseq_ssv_log);
-    if (verbose)
-    {
-      std::cout << "Waiting for am2b_iface::MsgHeader (" << header_size << " bytes)..." << std::endl;
-    }
-
-    while (total_received < header_size)
-    {
-      int recvd = 0;
-      recvd = read(socket_remote, &buf[total_received], BUFLEN-total_received);
-
-      if (recvd == 0) // connection died
-        break;
-      if (recvd == -1) // failed to read from socket
-        failWithError("read() failed!");
-
-      total_received += recvd;
-
-      if (verbose)
-      {
-        std::printf("(footstep header) Received %zu total bytes from %s\n", total_received, host_addr.c_str());
-      }
-    }
-    if (total_received < header_size)
-      break;
-
-    am2b_iface::MsgHeader* header = (am2b_iface::MsgHeader*)buf;
-    while (total_received < header_size + header->len)
-    {
-      int recvd = 0;
-      recvd = read(socket_remote, &buf[total_received], BUFLEN-total_received);
-
-      if (recvd == 0) // connection died
-        break;
-      if (recvd == -1) // failed to read from socket
-        failWithError("read() failed!");
-
-      total_received += recvd;
-
-      if (verbose)
-      {
-        std::printf("(footstep data) Received %zu total bytes from %s\n", total_received, host_addr.c_str());
-      }
-    }
-
-    if (header->id != am2b_iface::STEPSEQ_AR_VIZUALIZATION)
-    {
-	if (header->id == am2b_iface::COM_EOK)
-	{
-	  std::cout << "Received COM_EOK! msg len: " << header->len << std::endl;
-	}
-	else
-	{
-	      std::cout << "Skipping message (type: 0x" << std::hex << header->id << std::dec << ", expecting: 0x" << std::hex << am2b_iface::STEPSEQ_AR_VIZUALIZATION << std::dec << ")" << std::endl;;
-	}
-      continue;
-    }
-
-    am2b_iface::struct_data_stepseq_ssv_log* message = (am2b_iface::struct_data_stepseq_ssv_log*)(buf + header_size);
-    Footstep step;
-    step._foot = (Foot)(message->stance);
-    step._position.push_back(message->start_x);
-    step._position.push_back(message->start_y);
-    step._position.push_back(message->start_z);
-
-    std::cout << "Adding footstep at: " << message->start_x << ", " << message->start_y << ", " << message->start_z << std::endl;
-    renderFootstep(step);
+    std::cout << "[footsteps] New footstep at: "
+              << step._position[0] << ", "
+              << step._position[1] << ", "
+              << step._position[2] << std::endl;
   }
 
-  std::cout << std::endl << "-------------------------------------------------" << std::endl;
-  std::cout << "Connection to server " << host_addr << " terminated!" << std::endl;
-  std::cout << "-------------------------------------------------" << std::endl << std::endl;
-  close(socket_remote);
+  renderFootstep(step);
 }
 
 void printvec(float* vec, unsigned int len, std::ostream& out)
@@ -537,7 +454,6 @@ void getOrientation(float R_wr_cl[3][3], double rotation_matrix[3][3], double or
   // transpose(A_odo_cam_no_trans, orientation);
 }
 
-
 void onNewPose(HR_Pose_Red* new_pose, bool verbose=false)
 {
     if (verbose)
@@ -620,11 +536,11 @@ int main(int argc, char* argv[])
     pl.listen();
   }
 
+  FootstepListener fl(params.footstepPort, params.footstepHost, params.verbose);
   if (params.footstepPort > 0)
   {
-    footstep_socket = create_client_socket(params.footstepPort, params.footstepHost);
-    std::thread servicer(readFootstepsFrom, footstep_socket, params.footstepHost + ":" + std::to_string(params.footstepPort), params.verbose);
-    servicer.detach();
+    fl.onError([](std::string err)->void{std::cout << "ERROR [footsteps]: " << err << std::endl;});
+    fl.onNewStep(std::bind(&onNewFootstep, _1, params.verbose));
   }
 
   VisionListener vl(params.obstaclePort, params.verbose);

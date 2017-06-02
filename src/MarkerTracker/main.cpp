@@ -524,7 +524,6 @@ int main(int argc, char* argv[])
   Eigen::AngleAxisf marker_rot(M_PI/4.0f, Eigen::Vector3f::UnitZ());
   auto marker_rot_mat = marker_rot.matrix();
 
-
   PoseListener pl(params.posePort, true);
   if (params.posePort > 0)
   {

@@ -3,6 +3,9 @@
 
 #include <vector>
 #include <string>
+#include <iostream>
+
+#include <iface_vision_msg.hpp>
 
 enum ObstacleType
 {
@@ -17,6 +20,24 @@ struct Obstacle
   long _id;
   double _radius;
   std::vector<std::vector<double>> _coords;
+
+  Obstacle(){}
+
+  Obstacle(am2b_iface::ObstacleMessage* msg)
+  {
+    _type   = (ObstacleType)msg->type;
+    _id     = msg->model_id;
+    _radius = (double)msg->radius;
+
+    for (size_t i = 0; i < 3; i++)
+    {
+      _coords.push_back({});
+      for (size_t j = 0; j < 3; j++)
+      {
+        _coords[i].push_back((double)msg->coeffs[i*3+j]);
+      }
+    }
+  }
 
   operator std::string() const
   {

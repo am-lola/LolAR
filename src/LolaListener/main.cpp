@@ -134,25 +134,6 @@ bool parse_args(int argc, char* argv[], ParsedParams* params)
   return true;
 }
 
-Obstacle getRealObstacle(am2b_iface::ObstacleMessage* ob)
-{
-  Obstacle real;
-  real._type = (ObstacleType)ob->type;
-  real._id = ob->model_id;
-  real._radius = (double)ob->radius;
-
-  for (size_t i = 0; i < 3; i++)
-  {
-    real._coords.push_back({});
-    for (size_t j = 0; j < 3; j++)
-    {
-      real._coords[i].push_back((double)ob->coeffs[i*3+j]);
-    }
-  }
-
-  return real;
-}
-
 void renderFootstep(Footstep footstep)
 {
   double quadNormal[3] = {0, 0, 1}; // should be parallel to ground
@@ -275,11 +256,11 @@ void onObstacleMsg(am2b_iface::ObstacleMessage* message, bool verbose)
     // new obstacle to add to visualization
     if (message->action == am2b_iface::SET_SSV)
     {
-      renderObstacle(getRealObstacle(message));
+      renderObstacle(Obstacle(message));
     }
     else if (message->action == am2b_iface::MODIFY_SSV)
     {
-      updateObstacle(getRealObstacle(message));
+      updateObstacle(Obstacle(message));
     }
     else if (message->action == am2b_iface::REMOVE_SSV_ONLY_PART)
     {

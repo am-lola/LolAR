@@ -12,6 +12,7 @@
 
 #include <glm/gtx/euler_angles.hpp>
 
+#include <map>
 #include <chrono>
 #include <fstream>
 #include <sstream>
@@ -22,6 +23,7 @@
 
 #include <tclap/CmdLine.h>
 
+#include "Obstacle.hpp"
 #include "VisionListener.hpp"
 #include "PoseListener.hpp"
 #include "utils.hpp"
@@ -37,6 +39,7 @@ std::string log_dir;
 double time_elapsed = 0.0f;
 
 ar::ARVisualizer vizImages;
+std::map<int, ar::mesh_handle> obstacle_id_map;
 
 pcl::Grabber* interface;
 
@@ -171,6 +174,87 @@ void pose_cb (HR_Pose_Red* new_pose, CameraPoseEstimator<PointT>* cameraPoseEsti
 }
 
 /*
+ * Adds a new obstacle to a visualization instance
+ */
+void addObstacle(Obstacle obstacle, ar::ARVisualizer* viz)
+{
+  ar::mesh_handle viz_id;
+  switch (obstacle._type)
+  {
+    case Sphere:
+    {
+      ar::Sphere newSphere(
+        obstacle._coords[0][0], obstacle._coords[0][1], obstacle._coords[0][2], // center
+        obstacle._radius,
+        ar::Color(0, 0.4, 0.8, 0.8)
+      );
+      viz_id = viz->Add(newSphere);
+      break;
+    }
+    case Capsule:
+    {
+      ar::Capsule newCapsule(
+        obstacle._coords[0][0], obstacle._coords[0][1], obstacle._coords[0][2], // center1
+        obstacle._coords[1][0], obstacle._coords[1][1], obstacle._coords[2][2],
+        obstacle._radius,
+        ar::Color(0.6, 0.2, 0.6, 0.9)
+      );
+      viz_id = viz->Add(newCapsule);
+      break;
+    }
+    default:
+    {
+      std::cout << "Unexpected obstacle type: " << obstacle._type << std::endl;
+    }
+  }
+  obstacle_id_map.insert(std::pair<int, ar::mesh_handle>(obstacle._id, viz_id));
+}
+
+/*
+ * Updates an existing obstacle
+ */
+void updateObstacle(Obstacle obstacle, ar::ARVisualizer* viz)
+{
+  switch (obstacle._type)
+  {
+    case Sphere:
+    {
+      ar::Sphere newSphere(
+        obstacle._coords[0][0], obstacle._coords[0][1], obstacle._coords[0][2], // center
+        obstacle._radius,
+        ar::Color(0, 0.4, 0.8, 0.8)
+      );
+      viz->Update(obstacle_id_map[obstacle._id], newSphere);
+      break;
+    }
+    case Capsule:
+    {
+	  ar::Capsule newCapsule(
+        obstacle._coords[0][0], obstacle._coords[0][1], obstacle._coords[0][2], // center1
+        obstacle._coords[1][0], obstacle._coords[1][1], obstacle._coords[1][2], // center2
+        obstacle._radius, // radius
+        ar::Color(0.6, 0.2, 0.6, 0.9)
+      );
+      viz->Update(obstacle_id_map[obstacle._id], newCapsule);
+      break;
+    }
+    default:
+    {
+      std::cout << "Unexpected obstacle type: " << obstacle._type << std::endl;
+    }
+  }
+}
+
+/*
+ * Removes an existing obstacle from visualization
+ */
+void deleteObstacle(int obstacle_id, ar::ARVisualizer* viz)
+{
+  viz->Remove(obstacle_id_map[obstacle_id]);
+  obstacle_id_map.erase(obstacle_id);
+}
+
+/*
  * This callback is called when an obstacle is detected, changed, or removed
 */
 void obstacle_cb (am2b_iface::ObstacleMessage* message, ar::ARVisualizer* viz)
@@ -180,21 +264,78 @@ void obstacle_cb (am2b_iface::ObstacleMessage* message, ar::ARVisualizer* viz)
 
   if (message->action == am2b_iface::SET_SSV)
   {
-      // add obstacle
+    addObstacle(Obstacle(message), viz);
   }
   else if (message->action == am2b_iface::MODIFY_SSV)
   {
-    // update obstacle
+    updateObstacle(Obstacle(message), viz);
   }
   else if (message->action == am2b_iface::REMOVE_SSV_ONLY_PART)
   {
+    deleteObstacle(message->model_id, viz);
   }
   else if (message->action == am2b_iface::REMOVE_SSV_WHOLE_SEGMENT)
   {
+    deleteObstacle(message->model_id, viz);
   }
   else
   {
     std::cout << "[vision] Received unknown obstacle action: " << message->action << std::endl;
+  }
+
+  if (recording)
+  {
+    std::ofstream obstaclelog;
+    obstaclelog.open(log_dir + "/obstacles.txt", std::ofstream::app);
+    obstaclelog << time_elapsed << "\t{ " << *message << " }" << std::endl;
+    obstaclelog.close();
+  }
+}
+
+/*
+ * This callback is called when a surface is detected, changed, or removed
+ */
+void surface_cb (am2b_iface::SurfaceMessage* message, ar::ARVisualizer* viz)
+{
+  std::cout << "Received surface" << std::endl;
+
+  if (message->action == am2b_iface::SET_SURFACE)
+  {
+      // add new surface
+  }
+  else if (message->action == am2b_iface::MODIFY_SURFACE)
+  {
+      // update surface
+  }
+  else if (message->action == am2b_iface::REMOVE_SURFACE)
+  {
+      // delete surface
+  }
+  else
+  {
+      std::cout << "[vision] Received unknown surface action: " << message->action << std::endl;
+  }
+}
+
+/*
+ * This callback is called when a new RGB image is received from lepp
+ */
+void lepp_image_cb (am2b_iface::RGBMessage* message)
+{
+  if (recording)
+  {
+    /// TODO: Convert message->pixels to cv::Mat and save to disk
+  }
+}
+
+/*
+ * This callback is called when a pointcloud is received from lepp
+ */
+void lepp_cloud_cb (am2b_iface::PointCloudMessage* message)
+{
+  if (recording)
+  {
+      /// TODO: Convert message->data to pcl cloud and save to disk
   }
 }
 
@@ -256,6 +397,14 @@ int main(int argc, char* argv[])
       {
         metalog << "# this file tracks relative creation times of other log files" << std::endl;
       }
+      metalog.close();
+
+      std::ofstream obstaclelog(log_dir + "/obstacles.txt");
+      if (obstaclelog.is_open())
+      {
+        obstaclelog << "# This file tracks obstacle events and the local time they are received at" << std::endl;
+      }
+      obstaclelog.close();
     }
   }
 
@@ -347,6 +496,9 @@ int main(int argc, char* argv[])
     vl.onConnect([](std::string host)->void{std::cout << "[vision] Connected to: " << host << std::endl;});
     vl.onDisconnect([](std::string host)->void{std::cout << "[vision] Disconnected from: " << host << std::endl;});
     vl.onObstacleMessage(std::bind(&obstacle_cb, std::placeholders::_1, &vizImages));
+    vl.onSurfaceMessage(std::bind(&surface_cb, std::placeholders::_1, &vizImages));
+    vl.onRGBMessage(&lepp_image_cb);
+    vl.onPointCloudMessage(&lepp_cloud_cb);
     vl.listen();
   }
 

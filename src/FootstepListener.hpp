@@ -155,7 +155,8 @@ private:
 
       am2b_iface::struct_data_stepseq_ssv_log* message = (am2b_iface::struct_data_stepseq_ssv_log*)(buf + header_size);
       Footstep step;
-      step._foot = (Foot)(message->stance);
+      step._stamp = message->stamp_gen;
+      step._foot  = (Foot)(message->stance);
       step._position.push_back(message->start_x);
       step._position.push_back(message->start_y);
       step._position.push_back(message->start_z);

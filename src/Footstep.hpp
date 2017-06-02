@@ -15,10 +15,12 @@ struct Footstep
   Foot _foot;
   std::vector<double> _position;
   double _phi;
+  uint64_t _stamp;
 
   operator std::string() const
   {
     std::string result;
+    result += std::to_string(_stamp) + " : ";
     result += _foot == Left ? "Left:  " : "Right: ";
     result += "(";
     for (size_t i = 0; i < _position.size(); i++)

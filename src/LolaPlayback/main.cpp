@@ -18,6 +18,7 @@
 
 #include <ARVisualizer.hpp>
 
+#include "LogLoader.hpp"
 #include "StepPlannerLogReader.hpp"
 #include "CameraPoseEstimator.hpp"
 #include "CameraIntrinsics.hpp"

@@ -40,7 +40,7 @@ double time_elapsed = 0.0f;
 
 ar::ARVisualizer vizImages;
 std::map<int, ar::mesh_handle> obstacle_id_map;
-
+std::map<int, ar::mesh_handle> surface_id_map;
 pcl::Grabber* interface;
 
 // camera intrinsic parameters for Kinect RGB sensor
@@ -113,7 +113,7 @@ void image_callback (const boost::shared_ptr<openni_wrapper::Image>& image)
         std::ofstream metalog;
         metalog.open(log_dir + "/metalog.txt", std::ofstream::app);
         metalog << time_elapsed << "\t" << filename.str() << std::endl;
-        metalog.close(); 
+        metalog.close();
     }
   }
 }
@@ -132,11 +132,11 @@ void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
         filename << "cloud_" << std::setfill('0') << std::setw(4) << cloud_idx << ".pcd";
         pcl::io::savePCDFileBinary(log_dir + "/" + filename.str(), *cloud);
         cloud_idx++;
-        
+
         std::ofstream metalog;
         metalog.open(log_dir + "/metalog.txt", std::ofstream::app);
         metalog << time_elapsed << "\t" << filename.str() << std::endl;
-        metalog.close(); 
+        metalog.close();
     }
 }
 
@@ -153,6 +153,7 @@ void pose_cb (HR_Pose_Red* new_pose, CameraPoseEstimator<PointT>* cameraPoseEsti
   {
     std::ofstream tf_out;
     tf_out.open(log_dir + "/params.txt", std::ofstream::app);
+    tf_out << time_elapsed << "\t";
     for (size_t i = 0; i < 3; ++i)
     {
         tf_out << new_pose->t_wr_cl[i] << "\t";
@@ -286,11 +287,45 @@ void obstacle_cb (am2b_iface::ObstacleMessage* message, ar::ARVisualizer* viz)
   if (recording)
   {
     std::ofstream obstaclelog;
-    obstaclelog.open(log_dir + "/obstacles.txt", std::ofstream::app);
-    obstaclelog << time_elapsed << "\t{ " << *message << " }" << std::endl;
+    obstaclelog.open(log_dir + "/vision_data.txt", std::ofstream::app);
+    obstaclelog << time_elapsed << "\tobstacle { " << *message << " }" << std::endl;
     obstaclelog.close();
   }
 }
+
+/*
+ * Adds a new surface polygon to the given visualization
+ */
+ void addSurface(float* vertices, unsigned int count, unsigned int id, ar::ARVisualizer* viz)
+ {
+   ar::Polygon new_surface(0, 0); /// HACK: work around ARVisualizer api...
+   new_surface.points = vertices;
+   new_surface.numPoints = count;
+   new_surface.color = ar::Color(0, 1, 0);
+   ar::mesh_handle new_id = viz->Add(new_surface);
+   surface_id_map.insert(std::pair<int, ar::mesh_handle>(id, new_id));
+ }
+
+ /*
+  * Updates an existing surface
+  */
+void updateSurface(float* vertices, unsigned int count, unsigned int id, ar::ARVisualizer* viz)
+{
+  ar::Polygon new_surface(0, 0); /// HACK: work around ARVisualizer api...
+  new_surface.points = vertices;
+  new_surface.numPoints = count;
+  new_surface.color = ar::Color(0, 1, 0);
+  viz->Update(surface_id_map[id], new_surface);
+}
+
+/*
+ * Deletes a surface
+ */
+ void deleteSurface(int surface_id, ar::ARVisualizer* viz)
+ {
+   viz->Remove(surface_id_map[surface_id]);
+   surface_id_map.erase(surface_id);
+ }
 
 /*
  * This callback is called when a surface is detected, changed, or removed
@@ -301,19 +336,27 @@ void surface_cb (am2b_iface::SurfaceMessage* message, ar::ARVisualizer* viz)
 
   if (message->action == am2b_iface::SET_SURFACE)
   {
-      // add new surface
+      addSurface(message->vertices, 8, message->id, viz);
   }
   else if (message->action == am2b_iface::MODIFY_SURFACE)
   {
-      // update surface
+      updateSurface(message->vertices, 8, message->id, viz);
   }
   else if (message->action == am2b_iface::REMOVE_SURFACE)
   {
-      // delete surface
+      deleteSurface(message->id, viz);
   }
   else
   {
       std::cout << "[vision] Received unknown surface action: " << message->action << std::endl;
+  }
+
+  if (recording)
+  {
+    std::ofstream obstaclelog;
+    obstaclelog.open(log_dir + "/vision_data.txt", std::ofstream::app);
+    obstaclelog << time_elapsed << "\tsurface { " << *message << " }" << std::endl;
+    obstaclelog.close();
   }
 }
 
@@ -383,7 +426,7 @@ int main(int argc, char* argv[])
     std::ofstream tf_out(log_dir + "/params.txt");
     if (tf_out.is_open())
     {
-      tf_out << "# t_wr_cl[0]\tt_wr_cl[1]\tt_wr_cl[2]\t"
+      tf_out << "# local_time\tt_wr_cl[0]\tt_wr_cl[1]\tt_wr_cl[2]\t"
              << "R_wr_cl[0][0]\tR_wr_cl[0][1]\tR_wr_cl[0][2]\t"
              << "R_wr_cl[1][0]\tR_wr_cl[1][1]\tR_wr_cl[1][2]\t"
              << "R_wr_cl[2][0]\tR_wr_cl[2][1]\tR_wr_cl[2][2]\t"
@@ -399,7 +442,7 @@ int main(int argc, char* argv[])
       }
       metalog.close();
 
-      std::ofstream obstaclelog(log_dir + "/obstacles.txt");
+      std::ofstream obstaclelog(log_dir + "/vision_data.txt");
       if (obstaclelog.is_open())
       {
         obstaclelog << "# This file tracks obstacle events and the local time they are received at" << std::endl;
@@ -481,7 +524,7 @@ int main(int argc, char* argv[])
   Eigen::AngleAxisf marker_rot(M_PI/4.0f, Eigen::Vector3f::UnitZ());
   auto marker_rot_mat = marker_rot.matrix();
 
-  
+
   PoseListener pl(params.posePort, true);
   if (params.posePort > 0)
   {

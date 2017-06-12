@@ -24,6 +24,14 @@ template <typename PointT>
 class CameraPoseEstimator
 {
 public:
+  struct ImageCoord
+  {
+    int x;
+    int y;
+
+    ImageCoord(int X, int Y) : x(X), y(Y) {}
+  };
+
   CameraPoseEstimator(ArucoTracker tracker, FloorDetector<PointT> floorDetector)
   {
     _markerTracker = tracker;
@@ -203,9 +211,9 @@ public:
       {
         double* image_location = _markerTracker.LastImagePos();
         double* image_axis = _markerTracker.LastAxis();
-        UpdateFromMarkerPos(glm::floor(image_location[0]), glm::floor(image_location[1]),
-                            glm::floor(image_axis[0]), glm::floor(image_axis[1]),
-                            glm::floor(image_axis[2]), glm::floor(image_axis[3]));
+        UpdateFromMarkerPos(ImageCoord(glm::floor(image_location[0]), glm::floor(image_location[1])),
+                            ImageCoord(glm::floor(image_axis[0]), glm::floor(image_axis[1])),
+                            ImageCoord(glm::floor(image_axis[2]), glm::floor(image_axis[3])));
       }
     }
   }
@@ -223,9 +231,9 @@ public:
       {
         double* image_location = _markerTracker.LastImagePos();
         double* image_axis = _markerTracker.LastAxis();
-        UpdateFromMarkerPos(glm::floor(image_location[0]), glm::floor(image_location[1]),
-                            glm::floor(image_axis[0]), glm::floor(image_axis[1]),
-                            glm::floor(image_axis[2]), glm::floor(image_axis[3]));
+        UpdateFromMarkerPos(ImageCoord(glm::floor(image_location[0]), glm::floor(image_location[1])),
+                            ImageCoord(glm::floor(image_axis[0]), glm::floor(image_axis[1])),
+                            ImageCoord(glm::floor(image_axis[2]), glm::floor(image_axis[3])));
       }
     }
   }
@@ -248,11 +256,11 @@ private:
   // Updates: Yaw, X, Y
   // @markerX x-coord of marker center in image
   // @markerY y-coord of marker center in image
-  void UpdateFromMarkerPos(int markerX, int markerY, int marker1X, int marker1Y, int marker2X, int marker2Y)
+  void UpdateFromMarkerPos(ImageCoord marker, ImageCoord marker1, ImageCoord marker2)
   {
-    auto point = _lastCloud->at(markerX, markerY);
-    auto pm1   = _lastCloud->at(marker1X, marker1Y);
-    auto pm2   = _lastCloud->at(marker2X, marker2Y);
+    auto point = _lastCloud->at(marker.x, marker.y);
+    auto pm1   = _lastCloud->at(marker1.x, marker1.y);
+    auto pm2   = _lastCloud->at(marker2.x, marker2.y);
     if (point.x + point.y + point.z != 0 &&
         !std::isnan(point.x) && !std::isnan(point.y) && !std::isnan(point.z) &&
         pm1.x + pm1.y + pm1.z != 0 &&
@@ -273,15 +281,16 @@ private:
       // extract a portion of the cloud around the detected marker
       typename pcl::PointCloud<PointT>::Ptr markercloud(new pcl::PointCloud<PointT>);
 
-      // Fill in the cloud data /// TODO: scale # of points taken with distance from sensor
-      markercloud->width  = 65;
-      markercloud->height = 65;
+      // Fill in the cloud data
+      markercloud->width  = marker2.x - marker1.x;
+      markercloud->height = 0.5 * markercloud->width;
       markercloud->points.resize(markercloud->width * markercloud->height);
       for (size_t i = 0; i < markercloud->width; ++i)
       {
         for (size_t j = 0; j < markercloud->height; ++j)
         {
-          markercloud->at(i,j) = _lastCloud->at(markerX + i-32, markerY + j-32);
+          markercloud->at(i,j) = _lastCloud->at(marker.x + i-(0.5 * markercloud->width),
+                                                marker.y + j-(0.5 * markercloud->height));
         }
       }
 

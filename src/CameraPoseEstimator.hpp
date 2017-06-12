@@ -282,8 +282,21 @@ private:
       typename pcl::PointCloud<PointT>::Ptr markercloud(new pcl::PointCloud<PointT>);
 
       // Fill in the cloud data
-      markercloud->width  = marker2.x - marker1.x;
-      markercloud->height = 0.5 * markercloud->width;
+      if (abs(marker2.x - marker1.x) > abs(marker2.y - marker1.y)) // marker is horizontal
+      {
+        markercloud->width  = marker2.x - marker1.x;
+        markercloud->height = 0.5 * markercloud->width;
+      }
+      else // marker is vertical
+      {
+        markercloud->height = abs(marker2.y - marker1.y);
+        markercloud->width = 0.5 * markercloud->height;
+      }
+
+      // make sure we have a structured cloud, bail if not
+      if (markercloud->width == 1 || markercloud->height == 1)
+        return;
+
       markercloud->points.resize(markercloud->width * markercloud->height);
       for (size_t i = 0; i < markercloud->width; ++i)
       {

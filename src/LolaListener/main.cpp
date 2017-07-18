@@ -541,6 +541,7 @@ int main(int argc, char* argv[])
   {
     fl.onError([](std::string err)->void{std::cout << "ERROR [footsteps]: " << err << std::endl;});
     fl.onNewStep(std::bind(&onNewFootstep, _1, params.verbose));
+    fl.listen();
   }
 
   VisionListener vl(params.obstaclePort, params.verbose);

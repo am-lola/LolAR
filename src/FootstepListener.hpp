@@ -22,7 +22,7 @@ public:
   {
     if (_listening)
       return;
-
+    _listening = true;
     _socket = create_client_socket(_port, _hostname);
     _listener = std::thread(&FootstepListener::listen_impl, this);
   }

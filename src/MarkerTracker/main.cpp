@@ -65,6 +65,8 @@ CameraPoseEstimator<PointT>* cameraPoseEstimator;
 double camera_up[3]       = { 0.0, -1.0, 0.0 }; // only correct when robot is not connected
 double camera_forward[3]  = { 0.0,  0.0, 1.0 };
 double camera_position[3] = { 0.0,  0.0, 0.0 };
+Eigen::Vector3f chestplate_to_world_t = { 0.0, 0.0, 0.0 };
+Eigen::Matrix3f chestplate_to_world_r = Eigen::Matrix3f::Identity();
 
 struct ParsedParams
 {
@@ -159,9 +161,19 @@ void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
 /*
  * This callback is called when we receive a new robot pose
 */
-void pose_cb (HR_Pose_Red* new_pose, CameraPoseEstimator<PointT>* cameraPoseEstimator)
+void pose_cb (HR_Pose* new_pose, CameraPoseEstimator<PointT>* cameraPoseEstimator)
 {
   std::cout << "Received new robot pose!" << std::endl;
+  chestplate_to_world_t[0] = 0.0182 + new_pose->t_wr_ub[0];
+  chestplate_to_world_t[1] = 0.0223 + new_pose->t_wr_ub[1];
+  chestplate_to_world_t[2] = new_pose->t_wr_ub[2];
+  for (size_t i = 0; i < 3; i++)
+  {
+    for (size_t j = 0; j < 3; j++)
+    {
+      chestplate_to_world_r(i, j) = new_pose->R_wr_ub[3*i+j];
+    }
+  }
     /// TODO: Set marker->world transform according to new pose data
 //  cameraPoseEstimator->SetMarkerTransform(Eigen::Translation3f(marker_pos) * Eigen::Affine3f(marker_rot));
 
@@ -537,10 +549,10 @@ int main(int argc, char* argv[])
   ar::Transform t_m_;
 
   Eigen::Vector3f marker_pos(0.0f, -1.2f, 0.0f);
-  Eigen::AngleAxisf marker_rot(M_PI/4.0f, Eigen::Vector3f::UnitZ());
+  Eigen::AngleAxisf marker_rot(0.0f, Eigen::Vector3f::UnitZ());
   auto marker_rot_mat = marker_rot.matrix();
 
-  PoseListener pl(params.posePort, true);
+  PoseListener<HR_Pose> pl(params.posePort, true);
   if (params.posePort > 0)
   {
     pl.onError([](std::string err)->void{std::cout << "ERROR [pose]: " << err << std::endl;});

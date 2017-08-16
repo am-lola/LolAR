@@ -13,16 +13,17 @@
 
 #include "sock_utils.hpp"
 
+template <typename PoseT>
 class PoseListener
 {
 public:
-    typedef std::function<void(HR_Pose_Red*)> OnNewPose;
+    typedef std::function<void(PoseT*)> OnNewPose;
     typedef std::function<void(std::string)>  OnError;
 
     PoseListener(int port, bool verbose) : _port(port), _verbose(verbose)
     {
     }
-    
+
     void listen()
     {
         if (_listening)
@@ -57,7 +58,7 @@ private:
     bool        _verbose   = false;
     bool        _listening = false;
     std::thread _listener;
-    size_t      _buflen    = sizeof(HR_Pose_Red) + 1;
+    size_t      _buflen    = sizeof(PoseT) + 1;
 
     OnNewPose _onNewPose;
     OnError   _onError;
@@ -97,8 +98,8 @@ private:
             {
                 std::cout << "[PoseListener] Received " << nrecvd << " bytes from " << hostString(si_other) << std::endl;
             }
-            
-            HR_Pose_Red* new_pose = (HR_Pose_Red*)buf;
+
+            PoseT* new_pose = (PoseT*)buf;
             cb(_onNewPose, new_pose);
         }
     }

@@ -528,7 +528,7 @@ int main(int argc, char* argv[])
   cloud_handle = viz.Add(pointcloud);
   int footstep_socket = 0;
 
-  PoseListener pl(params.posePort, params.verbose);
+  PoseListener<HR_Pose_Red> pl(params.posePort, params.verbose);
   if (params.posePort > 0)
   {
     pl.onError([](std::string err)->void{std::cout << "ERROR [pose]: " << err << std::endl;});

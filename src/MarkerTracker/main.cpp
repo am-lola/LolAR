@@ -65,8 +65,6 @@ CameraPoseEstimator<PointT>* cameraPoseEstimator;
 double camera_up[3]       = { 0.0, -1.0, 0.0 }; // only correct when robot is not connected
 double camera_forward[3]  = { 0.0,  0.0, 1.0 };
 double camera_position[3] = { 0.0,  0.0, 0.0 };
-Eigen::Vector3f chestplate_to_world_t = { 0.0, 0.0, 0.0 };
-Eigen::Matrix3f chestplate_to_world_r = Eigen::Matrix3f::Identity();
 
 struct ParsedParams
 {
@@ -164,18 +162,20 @@ void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
 void pose_cb (HR_Pose* new_pose, CameraPoseEstimator<PointT>* cameraPoseEstimator)
 {
   std::cout << "Received new robot pose!" << std::endl;
-  chestplate_to_world_t[0] = 0.0182 + new_pose->t_wr_ub[0];
-  chestplate_to_world_t[1] = 0.0223 + new_pose->t_wr_ub[1];
-  chestplate_to_world_t[2] = new_pose->t_wr_ub[2];
+  Eigen::Vector3f marker_pos; // position of marker center in world coordinates
+  Eigen::Matrix3f marker_rot; // rotation of marker from world origin
+  marker_pos[0] = 0.0182 + new_pose->t_wr_ub[0];
+  marker_pos[1] = 0.0223 + new_pose->t_wr_ub[1];
+  marker_pos[2] = new_pose->t_wr_ub[2];
   for (size_t i = 0; i < 3; i++)
   {
     for (size_t j = 0; j < 3; j++)
     {
-      chestplate_to_world_r(i, j) = new_pose->R_wr_ub[3*i+j];
+      marker_rot(i, j) = new_pose->R_wr_ub[3*i+j];
     }
   }
     /// TODO: Set marker->world transform according to new pose data
-//  cameraPoseEstimator->SetMarkerTransform(Eigen::Translation3f(marker_pos) * Eigen::Affine3f(marker_rot));
+  cameraPoseEstimator->SetMarkerTransform(Eigen::Translation3f(marker_pos) * Eigen::Affine3f(marker_rot));
 
   if (recording)
   {

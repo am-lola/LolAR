@@ -104,18 +104,18 @@ public:
     }
   }
 
-  // void GetCam2MarkerRotationMatrix(double rotation[3][3])
-  // {
-  //   Eigen::Matrix4f rotationMatrix = GetCam2MarkerTransform().matrix();
-  //
-  //   for (size_t i = 0; i < 3; i++)
-  //   {
-  //     for (size_t j = 0; j < 3; j++)
-  //     {
-  //       rotation[i][j] = rotationMatrix(i, j);
-  //     }
-  //   }
-  // }
+  void GetCam2MarkerRotationMatrix(double rotation[3][3])
+  {
+    Eigen::Matrix4f rotationMatrix = GetCam2MarkerTransform().matrix();
+
+    for (size_t i = 0; i < 3; i++)
+    {
+      for (size_t j = 0; j < 3; j++)
+      {
+        rotation[i][j] = rotationMatrix(i, j);
+      }
+    }
+  }
 
   // Sets the transformation between the marker origin and world origin
   // Should most likely come from robot's kinematics
@@ -133,13 +133,13 @@ public:
     return (toMarker * _markerToWorld).inverse();
   }
 
-  // Eigen::Affine3f GetCam2MarkerTransform()
-  // {
-  //   // apply camera transformation
-  //   auto toMarker = Eigen::Translation3f(_cam2Marker_t) *
-  //                   Eigen::Affine3f(_cam2Marker_r);
-  //   return (toMarker);
-  // }
+  Eigen::Affine3f GetCam2MarkerTransform()
+  {
+    // apply camera transformation
+    auto toMarker = Eigen::Translation3f(_cam2Marker_t) *
+                    Eigen::Affine3f(_cam2Marker_r);
+    return (toMarker);
+  }
 
   // Updates camera parameters from a pointcloud generated from the camera's perspective
   // From the pointcloud we get: Pitch, Roll, and Height (Z)

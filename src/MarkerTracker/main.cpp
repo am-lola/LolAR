@@ -164,8 +164,8 @@ void pose_cb (HR_Pose* new_pose, CameraPoseEstimator<PointT>* cameraPoseEstimato
   std::cout << "Received new robot pose!" << std::endl;
   Eigen::Vector3f marker_pos; // position of marker center in world coordinates
   Eigen::Matrix3f marker_rot; // rotation of marker from world origin
-  marker_pos[0] = 0.0182 + new_pose->t_wr_ub[0];
-  marker_pos[1] = 0.0223 + new_pose->t_wr_ub[1];
+  marker_pos[0] = new_pose->t_wr_ub[0];
+  marker_pos[1] = new_pose->t_wr_ub[1];
   marker_pos[2] = new_pose->t_wr_ub[2];
   for (size_t i = 0; i < 3; i++)
   {
@@ -174,8 +174,12 @@ void pose_cb (HR_Pose* new_pose, CameraPoseEstimator<PointT>* cameraPoseEstimato
       marker_rot(i, j) = new_pose->R_wr_ub[3*i+j];
     }
   }
-    /// TODO: Set marker->world transform according to new pose data
-  cameraPoseEstimator->SetMarkerTransform(Eigen::Translation3f(marker_pos) * Eigen::Affine3f(marker_rot));
+
+                          // offset of chest plate center to upper body frame
+  Eigen::Affine3f marker_transform = Eigen::Translation3f(0.0182, 0.0223, 0) * Eigen::AngleAxisf(-M_PI * 0.5, Eigen::Vector3f::UnitY());
+  marker_transform = Eigen::Translation3f(marker_pos) * Eigen::Affine3f(marker_rot) * marker_transform;
+
+  cameraPoseEstimator->SetMarkerTransform(marker_transform);
 
   if (recording)
   {
@@ -189,6 +193,14 @@ void pose_cb (HR_Pose* new_pose, CameraPoseEstimator<PointT>* cameraPoseEstimato
     for (size_t i = 0; i < 9; ++i)
     {
         tf_out << new_pose->R_wr_cl[i] << "\t";
+    }
+    for (size_t i = 0; i < 3; ++i)
+    {
+      tf_out << new_pose->t_wr_ub[i] << "\t";
+    }
+    for (size_t i = 0; i < 9; ++i)
+    {
+      tf_out << new_pose->R_wr_ub[i] << "\t";
     }
     for (size_t i = 0; i < 3; ++i)
     {
@@ -458,6 +470,10 @@ int main(int argc, char* argv[])
              << "R_wr_cl[0][0]\tR_wr_cl[0][1]\tR_wr_cl[0][2]\t"
              << "R_wr_cl[1][0]\tR_wr_cl[1][1]\tR_wr_cl[1][2]\t"
              << "R_wr_cl[2][0]\tR_wr_cl[2][1]\tR_wr_cl[2][2]\t"
+             << "t_wr_ub[0]\tt_wr_ub[1]\tt_wr_ub[2]\t"
+             << "R_wr_ub[0][0]\tR_wr_ub[0][1]\tR_wr_ub[0][2]\t"
+             << "R_wr_ub[1][0]\tR_wr_ub[1][1]\tR_wr_ub[1][2]\t"
+             << "R_wr_ub[2][0]\tR_wr_ub[2][1]\tR_wr_ub[2][2]\t"
              << "t_stance_odo[0]\tt_stance_odo[1]\tt_stance_odo[2]\t"
              << "phi_z_odo\tstance\tstamp"
              << std::endl;
@@ -589,65 +605,65 @@ int main(int argc, char* argv[])
       std::cout << "[" << cam_rot_mat[i][0] << " " << cam_rot_mat[i][1] << " " << cam_rot_mat[i][2] << "]" << std::endl;
     }
     std::cout << "----------------" << std::endl;
-    // // get current camera transform
-    // auto transform = cameraPoseEstimator->GetTransform();
-    // auto cam2markerTransform = cameraPoseEstimator->GetCam2MarkerTransform();
-    //
-    // // update boxes translation
-    // auto box_0_t = transform * Eigen::Vector3f(box_center_0[0], box_center_0[1], box_center_0[2]);
-    // t_0.translation[0] = box_0_t[0];t_0.translation[1] = box_0_t[1];t_0.translation[2] = box_0_t[2];
-    // auto box_x_t = transform * Eigen::Vector3f(box_center_x[0], box_center_x[1], box_center_x[2]);
-    // t_x.translation[0] = box_x_t[0];t_x.translation[1] = box_x_t[1];t_x.translation[2] = box_x_t[2];
-    // auto box_y_t = transform * Eigen::Vector3f(box_center_y[0], box_center_y[1], box_center_y[2]);
-    // t_y.translation[0] = box_y_t[0];t_y.translation[1] = box_y_t[1];t_y.translation[2] = box_y_t[2];
-    // auto box_z_t = transform * Eigen::Vector3f(box_center_z[0], box_center_z[1], box_center_z[2]);
-    // t_z.translation[0] = box_z_t[0];t_z.translation[1] = box_z_t[1];t_z.translation[2] = box_z_t[2];
-    // auto box_m_t = transform * Eigen::Vector3f(-marker_pos[0], -marker_pos[1], -marker_pos[2]);
-    // t_m.translation[0] = box_m_t[0];t_m.translation[1] = box_m_t[1];t_m.translation[2] = box_m_t[2];
-    //
-    // auto box_0_t_ = cam2markerTransform * Eigen::Vector3f(box_center_0[0], box_center_0[1], box_center_0[2]);
-    // t_0_.translation[0] = box_0_t_[0];t_0_.translation[1] = box_0_t_[1];t_0_.translation[2] = box_0_t_[2];
-    // auto box_x_t_ = cam2markerTransform * Eigen::Vector3f(box_center_x[0], box_center_x[1], box_center_x[2]);
-    // t_x_.translation[0] = box_x_t_[0];t_x_.translation[1] = box_x_t_[1];t_x_.translation[2] = box_x_t_[2];
-    // auto box_y_t_ = cam2markerTransform * Eigen::Vector3f(box_center_y[0], box_center_y[1], box_center_y[2]);
-    // t_y_.translation[0] = box_y_t_[0];t_y_.translation[1] = box_y_t_[1];t_y_.translation[2] = box_y_t_[2];
-    // auto box_z_t_ = cam2markerTransform * Eigen::Vector3f(box_center_z[0], box_center_z[1], box_center_z[2]);
-    // t_z_.translation[0] = box_z_t_[0];t_z_.translation[1] = box_z_t_[1];t_z_.translation[2] = box_z_t_[2];
-    // auto box_m_t_ = cam2markerTransform * Eigen::Vector3f(-marker_pos[0], -marker_pos[1], -marker_pos[2]);
-    // t_m_.translation[0] = box_m_t_[0];t_m_.translation[1] = box_m_t_[1];t_m_.translation[2] = box_m_t_[2];
-    //
-    // // update boxes orientation
-    // cameraPoseEstimator->GetRotationMatrix(t_0.rotation);
-    // cameraPoseEstimator->GetRotationMatrix(t_x.rotation);
-    // cameraPoseEstimator->GetRotationMatrix(t_y.rotation);
-    // cameraPoseEstimator->GetRotationMatrix(t_z.rotation);
-    //
-    // cameraPoseEstimator->GetCam2MarkerRotationMatrix(t_0_.rotation);
-    // cameraPoseEstimator->GetCam2MarkerRotationMatrix(t_x_.rotation);
-    // cameraPoseEstimator->GetCam2MarkerRotationMatrix(t_y_.rotation);
-    // cameraPoseEstimator->GetCam2MarkerRotationMatrix(t_z_.rotation);
-    //
-    //
-    // for(size_t i = 0; i < 3; i++)
-    // {
-    //   for(size_t j = 0; j < 3; j++)
-    //   {
-    //     t_m.rotation[i][j] = marker_rot_mat(i,j);
-    //     t_m_.rotation[i][j] = marker_rot_mat(i,j);
-    //   }
-    // }
-    //
-    // // update boxes in visualizer
-    // vizImages.Update(o_h, t_0, true);
-    // vizImages.Update(x_h, t_x, true);
-    // vizImages.Update(y_h, t_y, true);
-    // vizImages.Update(z_h, t_z, true);
-    // vizImages.Update(m_h, t_m, true);
-    // vizImages.Update(o_h_, t_0_, true);
-    // vizImages.Update(x_h_, t_x_, true);
-    // vizImages.Update(y_h_, t_y_, true);
-    // vizImages.Update(z_h_, t_z_, true);
-    // vizImages.Update(m_h_, t_m_, true);
+    // get current camera transform
+    auto transform = cameraPoseEstimator->GetTransform();
+    auto cam2markerTransform = cameraPoseEstimator->GetCam2MarkerTransform();
+
+    // update boxes translation
+    auto box_0_t = transform * Eigen::Vector3f(box_center_0[0], box_center_0[1], box_center_0[2]);
+    t_0.translation[0] = box_0_t[0];t_0.translation[1] = box_0_t[1];t_0.translation[2] = box_0_t[2];
+    auto box_x_t = transform * Eigen::Vector3f(box_center_x[0], box_center_x[1], box_center_x[2]);
+    t_x.translation[0] = box_x_t[0];t_x.translation[1] = box_x_t[1];t_x.translation[2] = box_x_t[2];
+    auto box_y_t = transform * Eigen::Vector3f(box_center_y[0], box_center_y[1], box_center_y[2]);
+    t_y.translation[0] = box_y_t[0];t_y.translation[1] = box_y_t[1];t_y.translation[2] = box_y_t[2];
+    auto box_z_t = transform * Eigen::Vector3f(box_center_z[0], box_center_z[1], box_center_z[2]);
+    t_z.translation[0] = box_z_t[0];t_z.translation[1] = box_z_t[1];t_z.translation[2] = box_z_t[2];
+    auto box_m_t = transform * Eigen::Vector3f(-marker_pos[0], -marker_pos[1], -marker_pos[2]);
+    t_m.translation[0] = box_m_t[0];t_m.translation[1] = box_m_t[1];t_m.translation[2] = box_m_t[2];
+
+    auto box_0_t_ = cam2markerTransform * Eigen::Vector3f(box_center_0[0], box_center_0[1], box_center_0[2]);
+    t_0_.translation[0] = box_0_t_[0];t_0_.translation[1] = box_0_t_[1];t_0_.translation[2] = box_0_t_[2];
+    auto box_x_t_ = cam2markerTransform * Eigen::Vector3f(box_center_x[0], box_center_x[1], box_center_x[2]);
+    t_x_.translation[0] = box_x_t_[0];t_x_.translation[1] = box_x_t_[1];t_x_.translation[2] = box_x_t_[2];
+    auto box_y_t_ = cam2markerTransform * Eigen::Vector3f(box_center_y[0], box_center_y[1], box_center_y[2]);
+    t_y_.translation[0] = box_y_t_[0];t_y_.translation[1] = box_y_t_[1];t_y_.translation[2] = box_y_t_[2];
+    auto box_z_t_ = cam2markerTransform * Eigen::Vector3f(box_center_z[0], box_center_z[1], box_center_z[2]);
+    t_z_.translation[0] = box_z_t_[0];t_z_.translation[1] = box_z_t_[1];t_z_.translation[2] = box_z_t_[2];
+    auto box_m_t_ = cam2markerTransform * Eigen::Vector3f(-marker_pos[0], -marker_pos[1], -marker_pos[2]);
+    t_m_.translation[0] = box_m_t_[0];t_m_.translation[1] = box_m_t_[1];t_m_.translation[2] = box_m_t_[2];
+
+    // update boxes orientation
+    cameraPoseEstimator->GetRotationMatrix(t_0.rotation);
+    cameraPoseEstimator->GetRotationMatrix(t_x.rotation);
+    cameraPoseEstimator->GetRotationMatrix(t_y.rotation);
+    cameraPoseEstimator->GetRotationMatrix(t_z.rotation);
+
+    cameraPoseEstimator->GetCam2MarkerRotationMatrix(t_0_.rotation);
+    cameraPoseEstimator->GetCam2MarkerRotationMatrix(t_x_.rotation);
+    cameraPoseEstimator->GetCam2MarkerRotationMatrix(t_y_.rotation);
+    cameraPoseEstimator->GetCam2MarkerRotationMatrix(t_z_.rotation);
+
+
+    for(size_t i = 0; i < 3; i++)
+    {
+      for(size_t j = 0; j < 3; j++)
+      {
+        t_m.rotation[i][j] = marker_rot_mat(i,j);
+        t_m_.rotation[i][j] = marker_rot_mat(i,j);
+      }
+    }
+
+    // update boxes in visualizer
+    vizImages.Update(o_h, t_0, true);
+    vizImages.Update(x_h, t_x, true);
+    vizImages.Update(y_h, t_y, true);
+    vizImages.Update(z_h, t_z, true);
+    vizImages.Update(m_h, t_m, true);
+    vizImages.Update(o_h_, t_0_, true);
+    vizImages.Update(x_h_, t_x_, true);
+    vizImages.Update(y_h_, t_y_, true);
+    vizImages.Update(z_h_, t_z_, true);
+    vizImages.Update(m_h_, t_m_, true);
   }
 
   vizImages.Stop();

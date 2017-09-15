@@ -70,7 +70,7 @@ struct ParsedParams
 {
     unsigned int visionPort = 0; // port to receive vision messages on
     unsigned int posePort   = 0; // port to receive pose data on
-    bool record = false;          // whether or not to record a log
+    bool record = false;         // whether or not to record a log
 };
 
 void save_image (const cv::Mat& img, std::string filename)
@@ -104,7 +104,7 @@ void image_callback (const boost::shared_ptr<openni_wrapper::Image>& image)
     Mat2Arr(bgrImage, img_data);
 
     // send image data to visualizer
-    vizImages.NotifyNewVideoFrame(image->getWidth(), image->getHeight(), img_data);
+//    vizImages.NotifyNewVideoFrame(image->getWidth(), image->getHeight(), img_data);
 
     if (recording)
     {
@@ -159,7 +159,7 @@ void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
 /*
  * This callback is called when we receive a new robot pose
 */
-void pose_cb (HR_Pose* new_pose, CameraPoseEstimator<PointT>* cameraPoseEstimator)
+void pose_cb (HR_Pose_Red* new_pose, CameraPoseEstimator<PointT>* cameraPoseEstimator)
 {
   std::cout << "Received new robot pose!" << std::endl;
   Eigen::Vector3f marker_pos; // position of marker center in world coordinates
@@ -518,10 +518,11 @@ int main(int argc, char* argv[])
   interface->start();
 
   // Start RGB data visualizer
+  /*
   vizImages.Start("AR View");
   vizImages.SetCameraIntrinsics(camera_params.intrinsics);
   vizImages.SetCameraPose(camera_position, camera_forward, camera_up);
-
+*/
   double box_center_0[3] = {0,   0,   0};
   double box_center_x[3] = {0.2, 0,   0};
   double box_center_y[3] = {0,   0.2, 0};
@@ -539,7 +540,7 @@ int main(int argc, char* argv[])
   ar::Box box_y_(box_center_y, 0.15, 0.1, 0.1, ar::Color(0.5, 1.0, 0.5));
   ar::Box box_z_(box_center_z, 0.15, 0.1, 0.1, ar::Color(0.5, 0.5, 1.0));
   ar::Box box_m_(box_center_m, 0.15, 0.1, 0.1, ar::Color(0.8, 1.0, 1.0));
-
+/*
   auto o_h = vizImages.Add(box_0);
   auto x_h = vizImages.Add(box_x);
   auto y_h = vizImages.Add(box_y);
@@ -551,7 +552,7 @@ int main(int argc, char* argv[])
   auto y_h_ = vizImages.Add(box_y_);
   auto z_h_ = vizImages.Add(box_z_);
   auto m_h_ = vizImages.Add(box_m_);
-
+*/
   ar::Transform t_0;
   ar::Transform t_x;
   ar::Transform t_y;
@@ -568,7 +569,7 @@ int main(int argc, char* argv[])
   Eigen::AngleAxisf marker_rot(0.0f, Eigen::Vector3f::UnitZ());
   auto marker_rot_mat = marker_rot.matrix();
 
-  PoseListener<HR_Pose> pl(params.posePort, true);
+  PoseListener<HR_Pose_Red> pl(params.posePort, true);
   if (params.posePort > 0)
   {
     pl.onError([](std::string err)->void{std::cout << "ERROR [pose]: " << err << std::endl;});
@@ -597,7 +598,7 @@ int main(int argc, char* argv[])
     time_elapsed = diff.count();
     cameraPoseEstimator->GetPosition(cam_pos);
     cameraPoseEstimator->GetRotationMatrix(cam_rot_mat);
-    vizImages.SetCameraPose(cam_pos, cam_rot_mat);
+//    vizImages.SetCameraPose(cam_pos, cam_rot_mat);
 
     std::cout << "----------------" << std::endl;
     for (size_t i = 0; i < 3; i++)
@@ -654,7 +655,7 @@ int main(int argc, char* argv[])
     }
 
     // update boxes in visualizer
-    vizImages.Update(o_h, t_0, true);
+/*    vizImages.Update(o_h, t_0, true);
     vizImages.Update(x_h, t_x, true);
     vizImages.Update(y_h, t_y, true);
     vizImages.Update(z_h, t_z, true);
@@ -664,9 +665,10 @@ int main(int argc, char* argv[])
     vizImages.Update(y_h_, t_y_, true);
     vizImages.Update(z_h_, t_z_, true);
     vizImages.Update(m_h_, t_m_, true);
+    */
   }
 
-  vizImages.Stop();
+//  vizImages.Stop();
   interface->stop();
 
   return 0;

@@ -86,6 +86,9 @@ public:
 
   void Track(cv::Mat image)
   {
+    if (image.size().height == 0 || image.size().width == 0)
+      return;
+
     cv::Mat imageCopy = image.clone();  // used for debug output
 
     std::vector<int> ids;
@@ -178,10 +181,10 @@ public:
   double* LastTranslation() { return _translation; }
   double* LastRotation() { return _rotation; }
   double* LastImagePos() { return _imageCenter; }
-  double* LastAxis() { 
+  double* LastAxis() {
       return _img_x_axis;
   }
-  
+
 
 private:
   bool _hasPose = false;

@@ -1,6 +1,9 @@
 #ifndef _UTILS_H
 #define _UTILS_H
 
+#include <boost/filesystem.hpp>
+#include <boost/iterator/filter_iterator.hpp>
+
 #include <opencv2/opencv.hpp>
 #include <sys/stat.h>
 
@@ -59,6 +62,45 @@ std::string static makeStampedDirectory(std::string prefix)
     }
     return dirname;
 #endif
+}
+
+bool comparator(const std::string& s1, const std::string& s2)
+{
+  size_t first = s1.find_last_of("_");
+  // size_t last = s1.find_last_of(ext);
+  std::string num1 = s1.substr(first+1, (s1.length()-4 - first) - 1);
+
+  first = s2.find_last_of("_");
+  // last = s2.find_last_of(ext);
+  std::string num2 = s2.substr(first+1, (s2.length()-1 - first) - 1);
+
+  return (std::stoi(num1) < std::stoi(num2));
+}
+
+// retrieves all files with the given extension in a directory
+std::vector<std::string> getFilesInDirectory(const std::string& dir, const std::string& ext)
+{
+	int current_file_counter_ = 0;
+  std::vector<std::string> file_names;
+  // Default constructor for an iterator is the end iterator
+	boost::filesystem::directory_iterator end_iter;
+	for (boost::filesystem::directory_iterator iter(dir); iter != end_iter; ++iter)
+  {
+		if (iter->path().extension() == ext)
+    {
+      std::string const fn = iter->path().string();
+      file_names.push_back(fn);
+    	++current_file_counter_;
+    }
+  }
+
+  // sort files
+  std::sort(file_names.begin(), file_names.end(), comparator);
+  std::cout << "found " << current_file_counter_
+            << " " << ext
+            << " files in directory " << dir << std::endl;
+
+	return file_names;
 }
 
 /*

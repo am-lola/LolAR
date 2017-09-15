@@ -4,8 +4,10 @@
 #include <pcl/sample_consensus/model_types.h>
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/common/transforms.h>
+#include <pcl/io/image_grabber.h>
 #include <pcl/io/openni_grabber.h>
 #include <pcl/io/oni_grabber.h>
+#include <pcl/io/pcd_grabber.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -42,6 +44,7 @@ ar::ARVisualizer vizImages;
 std::map<int, ar::mesh_handle> obstacle_id_map;
 std::map<int, ar::mesh_handle> surface_id_map;
 pcl::Grabber* interface;
+std::shared_ptr<cv::VideoCapture> image_interface;
 
 // camera intrinsic parameters for Kinect RGB sensor
 double camera_matrix[3][3] = {
@@ -71,6 +74,7 @@ struct ParsedParams
     unsigned int visionPort = 0; // port to receive vision messages on
     unsigned int posePort   = 0; // port to receive pose data on
     bool record = false;         // whether or not to record a log
+    std::string inputDir;        // if given, location to read log files from
 };
 
 void save_image (const cv::Mat& img, std::string filename)
@@ -154,6 +158,21 @@ void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
     auto t_f = std::chrono::system_clock::now();
     std::chrono::duration<double> t_d = t_f - t_s;
     std::cout << "cloud cb: " << t_d.count() << "s" << std::endl;
+
+    // RGB image
+    if (image_interface)
+    {
+      if (!image_interface->grab())
+      {
+        // We reached the end, wrap around
+        image_interface->set(CV_CAP_PROP_POS_FRAMES, 0);
+        image_interface->grab();
+      }
+
+      cv::Mat image;
+      image_interface->retrieve(image);
+      cameraPoseEstimator->Update(image);
+    }
 }
 
 /*
@@ -428,20 +447,25 @@ bool parse_args(int argc, char* argv[],  ParsedParams* params)
     TCLAP::CmdLine cmd("Lola AR View", ' ', "0.1");
     TCLAP::ValueArg<unsigned int> visionPort("l", "lepp",
                                              "Port to listen on for vision data from lepp",
-                                             false, 0, "unsigned int");
+                                             false, 0, "port");
     TCLAP::ValueArg<unsigned int> posePort("p", "pose",
                                              "Port to listen on for robot pose data",
-                                             false, 0, "unsigned int");
+                                             false, 0, "port");
     TCLAP::SwitchArg record("r", "record",
                             "If set, all rendered data will also be saved to disk.",
                             cmd, false);
+    TCLAP::ValueArg<std::string> inputDir("d", "dir",
+                                            "Directory to read recorded data from",
+                                            false, "", "path");
     cmd.add(visionPort);
     cmd.add(posePort);
+    cmd.add(inputDir);
     cmd.parse(argc, argv);
 
     params->visionPort = visionPort.getValue();
     params->posePort   = posePort.getValue();
     params->record     = record.getValue();
+    params->inputDir   = inputDir.getValue();
   }
   catch (TCLAP::ArgException& e) {
       std::cerr << "Error in argument " << e.argId() << ": " << e.error() << std::endl;
@@ -495,8 +519,34 @@ int main(int argc, char* argv[])
     }
   }
 
-  std::cout << "Opening sensor" << std::endl;
-  interface = new pcl::OpenNIGrabber("", pcl::OpenNIGrabber::OpenNI_VGA_30Hz);
+  if (!params.inputDir.empty())
+  {
+    std::cout << "Opening directory: " << params.inputDir << std::endl;
+    interface = new pcl::PCDGrabber<PointT>(getFilesInDirectory(params.inputDir, ".pcd"), 30.0f, true);
+
+    // subscribe to grabber's pointcloud callback
+    boost::function<void (const pcl::PointCloud<PointT>::ConstPtr&)> f_points = boost::bind(&cloud_cb, _1);
+    interface->registerCallback(f_points);
+
+    // Prepare the filename sequence for cv::VideoCapture
+    std::stringstream ss;
+    ss << params.inputDir << "image_%04d.png";
+    std::cout << "image dir: " << ss.str() << std::endl;
+    image_interface.reset(new cv::VideoCapture(ss.str()));
+  }
+  else
+  {
+    std::cout << "Opening sensor" << std::endl;
+    interface = new pcl::OpenNIGrabber("", pcl::OpenNIGrabber::OpenNI_VGA_30Hz);
+
+    // subscribe to grabber's pointcloud callback
+    boost::function<void (const pcl::PointCloud<PointT>::ConstPtr&)> f_points = boost::bind(&cloud_cb, _1);
+    interface->registerCallback(f_points);
+
+    // subscribe to grabber's image callback so we get RGB data
+    boost::function<void (const boost::shared_ptr<openni_wrapper::Image>&)> f_rgb = boost::bind (&image_callback, _1);
+    interface->registerCallback (f_rgb);
+  }
 
   // initialize marker tracker
   auto dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_6X6_1000);
@@ -508,13 +558,6 @@ int main(int argc, char* argv[])
 
   cameraPoseEstimator = new CameraPoseEstimator<PointT>(tracker, floorDetector);
 
-  // subscribe to grabber's pointcloud callback
-  boost::function<void (const pcl::PointCloud<PointT>::ConstPtr&)> f_points = boost::bind(&cloud_cb, _1);
-  interface->registerCallback(f_points);
-
-  // subscribe to grabber's image callback so we get RGB data
-  boost::function<void (const boost::shared_ptr<openni_wrapper::Image>&)> f_rgb = boost::bind (&image_callback, _1);
-  interface->registerCallback (f_rgb);
   interface->start();
 
   // Start RGB data visualizer
@@ -592,6 +635,8 @@ int main(int argc, char* argv[])
   cameraPoseEstimator->SetMarkerTransform(Eigen::Translation3f(marker_pos) * Eigen::Affine3f(marker_rot));
   double cam_pos[3] = {0.0, 0.0, 0.0};
   double cam_rot_mat[3][3];
+
+  std::cout << "Here we go..." << std::endl;
   while(1)
   {
     std::chrono::duration<double> diff = (std::chrono::system_clock::now() - start_time);

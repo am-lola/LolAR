@@ -45,6 +45,7 @@ std::map<int, ar::mesh_handle> obstacle_id_map;
 std::map<int, ar::mesh_handle> surface_id_map;
 pcl::Grabber* interface;
 std::shared_ptr<cv::VideoCapture> image_interface;
+std::map<unsigned int, unsigned int> playback_sync_frames;
 
 // camera intrinsic parameters for Kinect RGB sensor
 double camera_matrix[3][3] = {
@@ -162,16 +163,29 @@ void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
     // RGB image
     if (image_interface)
     {
-      if (!image_interface->grab())
+      static unsigned int curr_rgb_frame = 0;
+      static unsigned int curr_pcd_frame = 0;
+
+      unsigned int sync_to = playback_sync_frames[curr_pcd_frame];
+      while (curr_rgb_frame <= sync_to)
       {
-        // We reached the end, wrap around
-        image_interface->set(CV_CAP_PROP_POS_FRAMES, 0);
-        image_interface->grab();
+        if (!image_interface->grab())
+        {
+          // We reached the end, wrap around
+          std::cout << "LOOPING RGB FEED" << std::endl;
+          image_interface->set(CV_CAP_PROP_POS_FRAMES, 0);
+          image_interface->grab();
+          curr_rgb_frame = 0;
+        }
+
+        cv::Mat image;
+        image_interface->retrieve(image);
+        cameraPoseEstimator->Update(image);
+        std::cout << "Video Frame: " << image_interface->get(CV_CAP_PROP_POS_FRAMES) << std::endl;
+        curr_rgb_frame++;
       }
 
-      cv::Mat image;
-      image_interface->retrieve(image);
-      cameraPoseEstimator->Update(image);
+      curr_pcd_frame++;
     }
 }
 
@@ -522,6 +536,32 @@ int main(int argc, char* argv[])
   if (!params.inputDir.empty())
   {
     std::cout << "Opening directory: " << params.inputDir << std::endl;
+
+    std::ifstream metalog(params.inputDir + "metalog.txt");
+    if (metalog.is_open())
+    {
+      std::string line;
+      unsigned int sync_rgb = 0;
+      unsigned int sync_pcd = 0;
+      while (getline(metalog, line))
+      {
+        if (line.find(".png") != std::string::npos)
+        {
+          sync_rgb++;
+        }
+        else if (line.find(".pcd") != std::string::npos)
+        {
+          playback_sync_frames[sync_pcd] = sync_rgb;
+          sync_pcd++;
+        }
+      }
+    }
+    else
+    {
+      std::cerr << "Could not open file: '" << params.inputDir << "metalog.txt'" << std::endl;
+      exit(1);
+    }
+
     interface = new pcl::PCDGrabber<PointT>(getFilesInDirectory(params.inputDir, ".pcd"), 30.0f, true);
 
     // subscribe to grabber's pointcloud callback
@@ -645,12 +685,12 @@ int main(int argc, char* argv[])
     cameraPoseEstimator->GetRotationMatrix(cam_rot_mat);
 //    vizImages.SetCameraPose(cam_pos, cam_rot_mat);
 
-    std::cout << "----------------" << std::endl;
-    for (size_t i = 0; i < 3; i++)
-    {
-      std::cout << "[" << cam_rot_mat[i][0] << " " << cam_rot_mat[i][1] << " " << cam_rot_mat[i][2] << "]" << std::endl;
-    }
-    std::cout << "----------------" << std::endl;
+    // std::cout << "----------------" << std::endl;
+    // for (size_t i = 0; i < 3; i++)
+    // {
+    //   std::cout << "[" << cam_rot_mat[i][0] << " " << cam_rot_mat[i][1] << " " << cam_rot_mat[i][2] << "]" << std::endl;
+    // }
+    // std::cout << "----------------" << std::endl;
     // get current camera transform
     auto transform = cameraPoseEstimator->GetTransform();
     auto cam2markerTransform = cameraPoseEstimator->GetCam2MarkerTransform();

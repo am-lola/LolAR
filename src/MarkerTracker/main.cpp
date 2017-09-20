@@ -33,6 +33,7 @@
 #include "CameraIntrinsics.hpp"
 #include "ArucoTracker.hpp"
 #include "FloorDetector.hpp"
+#include "VisionDataParser.hpp"
 
 typedef pcl::PointXYZ PointT;
 
@@ -45,7 +46,8 @@ std::map<int, ar::mesh_handle> obstacle_id_map;
 std::map<int, ar::mesh_handle> surface_id_map;
 pcl::Grabber* interface;
 std::shared_ptr<cv::VideoCapture> image_interface;
-std::map<unsigned int, unsigned int> playback_sync_frames;
+std::vector<std::shared_ptr<VisionData>> vision_data;
+std::map<unsigned int, std::pair<unsigned int, double>> playback_sync_frames;
 
 // camera intrinsic parameters for Kinect RGB sensor
 double camera_matrix[3][3] = {
@@ -165,9 +167,11 @@ void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
     {
       static unsigned int curr_rgb_frame = 0;
       static unsigned int curr_pcd_frame = 0;
+      static double       curr_vis_time  = 0;
 
-      unsigned int sync_to = playback_sync_frames[curr_pcd_frame];
-      while (curr_rgb_frame <= sync_to)
+      unsigned int sync_to_frame = playback_sync_frames[curr_pcd_frame].first;
+      double       sync_to_time  = playback_sync_frames[curr_pcd_frame].second;
+      while (curr_rgb_frame <= sync_to_frame)
       {
         if (!image_interface->grab())
         {
@@ -183,6 +187,11 @@ void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
         cameraPoseEstimator->Update(image);
         std::cout << "Video Frame: " << image_interface->get(CV_CAP_PROP_POS_FRAMES) << std::endl;
         curr_rgb_frame++;
+      }
+
+      while (curr_vis_time < sync_to_time)
+      {
+        /// TODO: Plot obstacles & surfaces between old vis time and current sync time
       }
 
       curr_pcd_frame++;
@@ -537,6 +546,8 @@ int main(int argc, char* argv[])
   {
     std::cout << "Opening directory: " << params.inputDir << std::endl;
 
+    vision_data = VisionDataParser::Parse(params.inputDir + "vision_data.txt");
+
     std::ifstream metalog(params.inputDir + "metalog.txt");
     if (metalog.is_open())
     {
@@ -551,7 +562,8 @@ int main(int argc, char* argv[])
         }
         else if (line.find(".pcd") != std::string::npos)
         {
-          playback_sync_frames[sync_pcd] = sync_rgb;
+          double timestamp = std::stod(line.substr(0, line.find(" ")));
+          playback_sync_frames[sync_pcd] = std::make_pair(sync_rgb, timestamp);
           sync_pcd++;
         }
       }

@@ -13,23 +13,13 @@
 struct VisionData
 {
   double   timestamp;
-  uint32_t action;
-};
+  am2b_iface::VisionMessage data;
 
-struct ObstacleData : VisionData
-{
-  unsigned int model_id;
-  unsigned int part_id;
-  am2b_iface::ObstacleType type;
-  double radius;
-  std::vector<double> coeffs;
-};
+  VisionData(am2b_iface::ObstacleMessage om, double t) : timestamp(t), data(om, (int)(t*10))
+  {}
 
-struct SurfaceData : VisionData
-{
-  unsigned int id;
-  std::vector<double> normal;
-  std::vector<double> vertices;
+  VisionData(am2b_iface::SurfaceMessage sm, double t) : timestamp(t), data(sm, (int)(t*10))
+  {}
 };
 
 // Provides some helpful methods for parsing the vision_data.txt
@@ -152,24 +142,22 @@ public:
     {
       if (tokens[i] == "obstacle")
       {
-        std::shared_ptr<ObstacleData> od = std::make_shared<ObstacleData>();
-        od->timestamp = last_stamp;
-
+        am2b_iface::ObstacleMessage om;
         while (tokens[i] != "}")
         {
           if (tokens[i] == "type")
           {
             if (tokens[i+1] == "Sphere")
             {
-              od->type = am2b_iface::ObstacleType::Sphere;
+              om.type = am2b_iface::ObstacleType::Sphere;
             }
             else if (tokens[i+1] == "Capsule")
             {
-              od->type = am2b_iface::ObstacleType::Capsule;
+              om.type = am2b_iface::ObstacleType::Capsule;
             }
             else if (tokens[i+1] == "Triangle")
             {
-              od->type = am2b_iface::ObstacleType::Triangle;
+              om.type = am2b_iface::ObstacleType::Triangle;
             }
             else
             {
@@ -181,18 +169,23 @@ public:
           {
             // find the split
             auto split = tokens[i+1].find("|");
-            od->model_id = std::stoul(tokens[i+1].substr(0, split));
-            od->part_id  = std::stoul(tokens[i+1].substr(split+1, tokens[i+1].length()-split-1));
+            om.model_id = std::stoul(tokens[i+1].substr(0, split));
+            om.part_id  = std::stoul(tokens[i+1].substr(split+1, tokens[i+1].length()-split-1));
             i++;
           }
           else if (tokens[i] == "action")
           {
-            od->action = std::stoul(tokens[i+1]);
+            om.action = std::stoul(tokens[i+1], nullptr, 16);
             i++;
           }
           else if (tokens[i] == "radius")
           {
-            od->action = std::stod(tokens[i+1]);
+            om.radius = std::stod(tokens[i+1]);
+            i++;
+          }
+          else if (tokens[i] == "surface")
+          {
+            om.surface = std::stoi(tokens[i+1]);
             i++;
           }
           else if (tokens[i] == "Model Coefficients")
@@ -201,33 +194,36 @@ public:
               throw std::runtime_error("Failed to parse '" + filename + "': Expected vector of model coefficients. Found token: " + tokens[i+1]);
 
             i += 2; // skip opening brace
+            std::vector<double> shape_coeffs;
             while(tokens[i] != "]")
             {
-              od->coeffs.push_back(std::stod(tokens[i]));
+              shape_coeffs.push_back(std::stod(tokens[i]));
               i++;
             }
+            if (shape_coeffs.size() != 9)
+              throw std::runtime_error("Failed to parse '" + filename + "': Expected 9 shape coefficients for obstacle. Found: " + std::to_string(shape_coeffs.size()));
+            std::copy(shape_coeffs.begin(), shape_coeffs.end(), om.coeffs);
           }
 
           i++;
         }
 
-        result.push_back(od);
+        result.push_back(std::make_shared<VisionData>(om, last_stamp));
       }
       else if (tokens[i] == "surface")
       {
-        std::shared_ptr<SurfaceData> sd = std::make_shared<SurfaceData>();
-        sd->timestamp = last_stamp;
+        am2b_iface::SurfaceMessage sm;
 
         while (tokens[i] != "}")
         {
           if (tokens[i] == "id")
           {
-            sd->id = std::stoul(tokens[i+1]);
+            sm.id = std::stoul(tokens[i+1]);
             i++;
           }
           else if (tokens[i] == "action")
           {
-            sd->action = std::stoul(tokens[i+1]);
+            sm.action = std::stoul(tokens[i+1], nullptr, 16);
             i++;
           }
           else if (tokens[i] == "normal")
@@ -236,11 +232,15 @@ public:
               throw std::runtime_error("Failed to parse '" + filename + "': Expected vector of surface normal coords. Found token: " + tokens[i+1]);
 
               i += 2; // skip opening brace
+              std::vector<double> normal_coords;
               while (tokens[i] != "]")
               {
-                sd->normal.push_back(std::stod(tokens[i]));
+                normal_coords.push_back(std::stod(tokens[i]));
                 i++;
               }
+              if (normal_coords.size() != 3)
+                throw std::runtime_error("Failed to parse '" + filename + "': Expected 3 values for surface normal. Found: " + std::to_string(normal_coords.size()));
+              std::copy(normal_coords.begin(), normal_coords.end(), sm.normal);
           }
           else if (tokens[i] == "vertices")
           {
@@ -248,16 +248,20 @@ public:
               throw std::runtime_error("Failed to parse '" + filename + "': Expected vector of surface vertices. Found token: " + tokens[i+1]);
 
               i += 2; // skip opening brace
+              std::vector<double> vertex_coords;
               while (tokens[i] != "]")
               {
-                sd->vertices.push_back(std::stod(tokens[i]));
+                vertex_coords.push_back(std::stod(tokens[i]));
                 i++;
               }
+              if (vertex_coords.size() != 24)
+                throw std::runtime_error("Failed to parse '" + filename + "': Expected vector of surface vertex coords to contain 24 elements. Found: " + std::to_string(vertex_coords.size()));
+              std::copy(vertex_coords.begin(), vertex_coords.end(), sm.vertices);
           }
           i++;
         }
 
-        result.push_back(sd);
+        result.push_back(std::make_shared<VisionData>(sm, last_stamp));
       }
       else
       {

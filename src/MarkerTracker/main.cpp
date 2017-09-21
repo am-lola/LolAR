@@ -47,6 +47,7 @@ std::map<int, ar::mesh_handle> surface_id_map;
 pcl::Grabber* interface;
 std::shared_ptr<cv::VideoCapture> image_interface;
 std::vector<std::shared_ptr<VisionData>> vision_data;
+std::vector<std::pair<double, HR_Pose_Red>> pose_data;
 std::map<unsigned int, std::pair<unsigned int, double>> playback_sync_frames;
 
 // camera intrinsic parameters for Kinect RGB sensor
@@ -80,6 +81,11 @@ struct ParsedParams
     std::string inputDir;        // if given, location to read log files from
 };
 
+// forward decls
+void obstacle_cb (am2b_iface::ObstacleMessage* message, ar::ARVisualizer* viz);
+void surface_cb (am2b_iface::SurfaceMessage* message, ar::ARVisualizer* viz);
+void pose_cb (HR_Pose_Red* new_pose, CameraPoseEstimator<PointT>* cameraPoseEstimator);
+
 void save_image (const cv::Mat& img, std::string filename)
 {
   cv::imwrite(filename, img);
@@ -111,7 +117,7 @@ void image_callback (const boost::shared_ptr<openni_wrapper::Image>& image)
     Mat2Arr(bgrImage, img_data);
 
     // send image data to visualizer
-//    vizImages.NotifyNewVideoFrame(image->getWidth(), image->getHeight(), img_data);
+    vizImages.NotifyNewVideoFrame(image->getWidth(), image->getHeight(), img_data);
 
     if (recording)
     {
@@ -165,9 +171,12 @@ void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
     // RGB image
     if (image_interface)
     {
-      static unsigned int curr_rgb_frame = 0;
-      static unsigned int curr_pcd_frame = 0;
-      static double       curr_vis_time  = 0;
+      static unsigned int curr_rgb_frame  = 0;
+      static unsigned int curr_pcd_frame  = 0;
+      static double       curr_vis_time   = 0;
+      static size_t       curr_vision_idx = 0;
+      static double       curr_pose_time  = 0;
+      static size_t       curr_pose_idx   = 0;
 
       unsigned int sync_to_frame = playback_sync_frames[curr_pcd_frame].first;
       double       sync_to_time  = playback_sync_frames[curr_pcd_frame].second;
@@ -186,12 +195,52 @@ void cloud_cb (const pcl::PointCloud<PointT>::ConstPtr& cloud)
         image_interface->retrieve(image);
         cameraPoseEstimator->Update(image);
         std::cout << "Video Frame: " << image_interface->get(CV_CAP_PROP_POS_FRAMES) << std::endl;
+
+        // allocate space to hold image data
+        static unsigned char* img_data = new unsigned char[image.size().width * image.size().height * 3];
+
+        // incoming image is flipped on the X axis
+        Mat2Arr(image, img_data);
+
+        // send image data to visualizer
+        vizImages.NotifyNewVideoFrame(image.size().width, image.size().height, img_data);
+
         curr_rgb_frame++;
       }
 
       while (curr_vis_time < sync_to_time)
       {
-        /// TODO: Plot obstacles & surfaces between old vis time and current sync time
+        if (curr_vision_idx >= vision_data.size())
+          break;
+
+        if (vision_data[curr_vision_idx]->timestamp > sync_to_time)
+          break;
+
+        switch (vision_data[curr_vision_idx]->data.header.type)
+        {
+          case am2b_iface::Message_Type::Obstacle:
+          {
+            obstacle_cb((am2b_iface::ObstacleMessage*)vision_data[curr_vision_idx]->data.content, &vizImages);
+            break;
+          }
+          case am2b_iface::Message_Type::Surface:
+          {
+            surface_cb((am2b_iface::SurfaceMessage*)vision_data[curr_vision_idx]->data.content, &vizImages);
+            break;
+          }
+        }
+        curr_vision_idx++;
+      }
+
+      while (curr_pose_time < sync_to_time)
+      {
+        if (curr_pose_idx >= pose_data.size())
+          break;
+        if (pose_data[curr_pose_idx].first > sync_to_time)
+          break;
+
+        pose_cb(&pose_data[curr_pose_idx].second, cameraPoseEstimator);
+        curr_pose_idx++;
       }
 
       curr_pcd_frame++;
@@ -547,6 +596,7 @@ int main(int argc, char* argv[])
     std::cout << "Opening directory: " << params.inputDir << std::endl;
 
     vision_data = VisionDataParser::Parse(params.inputDir + "vision_data.txt");
+    pose_data = ParsePoseParams(params.inputDir + "params.txt");
 
     std::ifstream metalog(params.inputDir + "metalog.txt");
     if (metalog.is_open())
@@ -613,11 +663,11 @@ int main(int argc, char* argv[])
   interface->start();
 
   // Start RGB data visualizer
-  /*
+
   vizImages.Start("AR View");
   vizImages.SetCameraIntrinsics(camera_params.intrinsics);
   vizImages.SetCameraPose(camera_position, camera_forward, camera_up);
-*/
+
   double box_center_0[3] = {0,   0,   0};
   double box_center_x[3] = {0.2, 0,   0};
   double box_center_y[3] = {0,   0.2, 0};
@@ -635,7 +685,7 @@ int main(int argc, char* argv[])
   ar::Box box_y_(box_center_y, 0.15, 0.1, 0.1, ar::Color(0.5, 1.0, 0.5));
   ar::Box box_z_(box_center_z, 0.15, 0.1, 0.1, ar::Color(0.5, 0.5, 1.0));
   ar::Box box_m_(box_center_m, 0.15, 0.1, 0.1, ar::Color(0.8, 1.0, 1.0));
-/*
+
   auto o_h = vizImages.Add(box_0);
   auto x_h = vizImages.Add(box_x);
   auto y_h = vizImages.Add(box_y);
@@ -647,7 +697,7 @@ int main(int argc, char* argv[])
   auto y_h_ = vizImages.Add(box_y_);
   auto z_h_ = vizImages.Add(box_z_);
   auto m_h_ = vizImages.Add(box_m_);
-*/
+
   ar::Transform t_0;
   ar::Transform t_x;
   ar::Transform t_y;
@@ -695,7 +745,7 @@ int main(int argc, char* argv[])
     time_elapsed = diff.count();
     cameraPoseEstimator->GetPosition(cam_pos);
     cameraPoseEstimator->GetRotationMatrix(cam_rot_mat);
-//    vizImages.SetCameraPose(cam_pos, cam_rot_mat);
+    vizImages.SetCameraPose(cam_pos, cam_rot_mat);
 
     // std::cout << "----------------" << std::endl;
     // for (size_t i = 0; i < 3; i++)
@@ -752,7 +802,7 @@ int main(int argc, char* argv[])
     }
 
     // update boxes in visualizer
-/*    vizImages.Update(o_h, t_0, true);
+    vizImages.Update(o_h, t_0, true);
     vizImages.Update(x_h, t_x, true);
     vizImages.Update(y_h, t_y, true);
     vizImages.Update(z_h, t_z, true);
@@ -762,10 +812,10 @@ int main(int argc, char* argv[])
     vizImages.Update(y_h_, t_y_, true);
     vizImages.Update(z_h_, t_z_, true);
     vizImages.Update(m_h_, t_m_, true);
-    */
+
   }
 
-//  vizImages.Stop();
+  vizImages.Stop();
   interface->stop();
 
   return 0;

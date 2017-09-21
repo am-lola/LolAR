@@ -36,20 +36,20 @@ public:
   {
     _markerTracker = tracker;
     _floorDetector = floorDetector;
-    _visualizer.Start("Camera Pose Estimation");
+    //  _visualizer.Start("Camera Pose Estimation");
 
     // just for testing at the moment...
     double camera_up[3]       = { 0.0, -1.0, 0.0 };
     double camera_forward[3]  = { 0.0,  0.0, 1.0 };
     double camera_position[3] = { 0.0,  0.0, 0.0 };
-    _visualizer.SetCameraPose(camera_position, camera_forward, camera_up);
+    //  _visualizer.SetCameraPose(camera_position, camera_forward, camera_up);
   }
 
   CameraPoseEstimator(ArucoTracker tracker, FloorDetector<PointT> floorDetector, Eigen::Vector3f initial_pos, Eigen::Vector3f initial_rot)
   {
     _markerTracker = tracker;
     _floorDetector = floorDetector;
-    _visualizer.Start("Camera Pose Estimation");
+    //  _visualizer.Start("Camera Pose Estimation");
 
     _cameraPosition = initial_pos;
     _cameraRotation = initial_rot;
@@ -58,12 +58,12 @@ public:
     double camera_position[3] = { _cameraPosition[0], _cameraPosition[1], _cameraPosition[2] };
     double camera_rotation[3][3];
     GetRotationMatrix(camera_rotation);
-    _visualizer.SetCameraPose(camera_position, camera_rotation);
+    //  _visualizer.SetCameraPose(camera_position, camera_rotation);
   }
 
   ~CameraPoseEstimator()
   {
-    _visualizer.Stop();
+    //  _visualizer.Stop();
   }
 
   // Gets the latest position estimate of the camera
@@ -152,8 +152,8 @@ public:
     const PointT* data = &cloud->points[0];
     wholeCloud.pointData = reinterpret_cast<const void*>(data);
     wholeCloud.numPoints = cloud->size();
-    static ar::mesh_handle wholeCloud_handle = _visualizer.Add(wholeCloud);
-    _visualizer.Update(wholeCloud_handle, wholeCloud);
+//    static ar::mesh_handle wholeCloud_handle = _visualizer.Add(wholeCloud);
+//    _visualizer.Update(wholeCloud_handle, wholeCloud);
 
     // Update height of camera based on floor
     pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
@@ -192,8 +192,8 @@ public:
       const PointT* floorCloud_data = &floorcloud->points[0];
       floorCloudData.pointData = reinterpret_cast<const void*>(floorCloud_data);
       floorCloudData.numPoints = floorcloud->size();
-      static ar::mesh_handle floorCloud_handle = _visualizer.Add(floorCloudData);
-      _visualizer.Update(floorCloud_handle, floorCloudData);
+//      static ar::mesh_handle floorCloud_handle = _visualizer.Add(floorCloudData);
+//      _visualizer.Update(floorCloud_handle, floorCloudData);
     }
 
     std::cout << "New Camera Position: [" << _cameraPosition[0] << ", " << _cameraPosition[1] << ", " << _cameraPosition[2] << "]" << std::endl;
@@ -250,7 +250,7 @@ private:
 
   typename pcl::PointCloud<PointT>::ConstPtr _lastCloud; // most recent pointcloud received
 
-  ar::ARVisualizer _visualizer;
+  //  ar::ARVisualizer  _visualizer;
 
   // Updates camera parameters from a detected marker in an RGB image corresponded with points in a recent pointcloud
   // Updates: Yaw, X, Y
@@ -271,9 +271,9 @@ private:
     {
       // marker's center
       double truePosition[3] = {point.x, point.y, point.z};
-      ar::Sphere truePos(truePosition, 0.02, ar::Color(1,0,0));
-      static ar::mesh_handle marker_origin_handle = _visualizer.Add(truePos);
-      _visualizer.Update(marker_origin_handle, truePos);
+      // ar::Sphere truePos(truePosition, 0.02, ar::Color(1,0,0));
+      // static ar::mesh_handle marker_origin_handle = _visualizer.Add(truePos);
+      //  _visualizer.Update(marker_origin_handle, truePos);
 
       // set camera translation to marker
       _cam2Marker_t = {point.x, point.y, point.z};
@@ -329,11 +329,11 @@ private:
         extractor.filter(*planecloud);
 
         const PointT* plane_data = &planecloud->points[0];
-        static ar::PointCloudData markerPlane(ar::PCL_PointXYZ, ar::Color(1, 0, 0));
-        static ar::mesh_handle markerPlane_handle = _visualizer.Add(markerPlane);
-        markerPlane.pointData = reinterpret_cast<const void*>(plane_data);
-        markerPlane.numPoints = planecloud->size();
-        _visualizer.Update(markerPlane_handle, markerPlane);
+        // static ar::PointCloudData markerPlane(ar::PCL_PointXYZ, ar::Color(1, 0, 0));
+        // static ar::mesh_handle markerPlane_handle = //  _visualizer.Add(markerPlane);
+        // markerPlane.pointData = reinterpret_cast<const void*>(plane_data);
+        // markerPlane.numPoints = planecloud->size();
+        //  _visualizer.Update(markerPlane_handle, markerPlane);
 
         typename pcl::PointCloud<PointT>::Ptr marker_axis_cld( new pcl::PointCloud<PointT>());
         marker_axis_cld->width = 2;
@@ -361,44 +361,44 @@ private:
         };
 
         // visualize marker board
-        static ar::Quad board = ar::Quad(truePosition, board_normal, 0.4, 0.3, ar::Color(0.8,0.8,0));
-        static ar::mesh_handle board_handle = _visualizer.Add(board);
-        static ar::Transform boardTransform = ar::Transform();
-        boardTransform.translation[0] = truePosition[0];
-        boardTransform.translation[1] = truePosition[1];
-        boardTransform.translation[2] = truePosition[2];
+        // static ar::Quad board = ar::Quad(truePosition, board_normal, 0.4, 0.3, ar::Color(0.8,0.8,0));
+        // static ar::mesh_handle board_handle = _visualizer.Add(board);
+        // static ar::Transform boardTransform = ar::Transform();
+        // boardTransform.translation[0] = truePosition[0];
+        // boardTransform.translation[1] = truePosition[1];
+        // boardTransform.translation[2] = truePosition[2];
 
         // visualize marker normal
-        static ar::LinePath n_line = ar::LinePath(0.005f, ar::Color(0.5, 0.52, 0.8));
-        static double n_line_end[3];
-        Eigen::Vector3f nnormal = Eigen::Vector3f(truePosition[0], truePosition[1], truePosition[2]) +
-              Eigen::Vector3f(board_normal[0], board_normal[1], board_normal[2]).normalized()*0.2f;
-
-        n_line_end[0] = nnormal.x();
-        n_line_end[1] = nnormal.y();
-        n_line_end[2] = nnormal.z();
-        n_line.points = {
-            (float)truePosition[0],
-            (float)truePosition[1],
-            (float)truePosition[2],
-            (float)n_line_end[0],
-            (float)n_line_end[1],
-            (float)n_line_end[2]
-        };
-        static ar::mesh_handle normal_line_handle = _visualizer.Add(n_line);
-        _visualizer.Update(normal_line_handle, n_line);
+        // static ar::LinePath n_line = ar::LinePath(0.005f, ar::Color(0.5, 0.52, 0.8));
+        // static double n_line_end[3];
+        // Eigen::Vector3f nnormal = Eigen::Vector3f(truePosition[0], truePosition[1], truePosition[2]) +
+        //       Eigen::Vector3f(board_normal[0], board_normal[1], board_normal[2]).normalized()*0.2f;
+        //
+        // n_line_end[0] = nnormal.x();
+        // n_line_end[1] = nnormal.y();
+        // n_line_end[2] = nnormal.z();
+        // n_line.points = {
+        //     (float)truePosition[0],
+        //     (float)truePosition[1],
+        //     (float)truePosition[2],
+        //     (float)n_line_end[0],
+        //     (float)n_line_end[1],
+        //     (float)n_line_end[2]
+        // };
+        // static ar::mesh_handle normal_line_handle = _visualizer.Add(n_line);
+        //  _visualizer.Update(normal_line_handle, n_line);
 
         auto boardRotation = Eigen::Quaternionf::FromTwoVectors(Eigen::Vector3f(0, 0, 1), Eigen::Vector3f(board_normal[0], board_normal[1], board_normal[2]));
         Eigen::Vector3f curr_x_axis = boardRotation * Eigen::Vector3f::UnitX();
         auto boardRotation_fin = (Eigen::Quaternionf::FromTwoVectors(curr_x_axis, marker_axis) * boardRotation).toRotationMatrix();
-        for (size_t i = 0; i < 3; i++)
-        {
-          for (size_t j = 0; j < 3; j++)
-          {
-            boardTransform.rotation[i][j] = boardRotation_fin(i, j);
-          }
-        }
-        _visualizer.Update(board_handle, boardTransform, true);
+        // for (size_t i = 0; i < 3; i++)
+        // {
+        //   for (size_t j = 0; j < 3; j++)
+        //   {
+        //     boardTransform.rotation[i][j] = boardRotation_fin(i, j);
+        //   }
+        // }
+        //  _visualizer.Update(board_handle, boardTransform, true);
 
         _cam2Marker_r = boardRotation_fin;
 

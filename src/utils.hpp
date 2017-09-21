@@ -1,6 +1,8 @@
 #ifndef _UTILS_H
 #define _UTILS_H
 
+#include <iface_vis.h>
+
 #include <boost/filesystem.hpp>
 #include <boost/iterator/filter_iterator.hpp>
 
@@ -101,6 +103,62 @@ std::vector<std::string> getFilesInDirectory(const std::string& dir, const std::
             << " files in directory " << dir << std::endl;
 
 	return file_names;
+}
+
+std::vector<std::pair<double, HR_Pose_Red>> ParsePoseParams(std::string filename)
+{
+  std::ifstream file(filename);
+  if (!file.is_open())
+    throw std::runtime_error("Could not open file: " + filename);
+
+    std::vector<std::pair<double, HR_Pose_Red>> result;
+    std::string line;
+    while (getline(file, line))
+    {
+      HR_Pose_Red pose;
+      double timestamp;
+      std::stringstream ss(line);
+      ss >> timestamp;
+      ss >> pose.t_wr_cl[0];
+      ss >> pose.t_wr_cl[1];
+      ss >> pose.t_wr_cl[2];
+
+      ss >> pose.R_wr_cl[0];
+      ss >> pose.R_wr_cl[1];
+      ss >> pose.R_wr_cl[2];
+      ss >> pose.R_wr_cl[3];
+      ss >> pose.R_wr_cl[4];
+      ss >> pose.R_wr_cl[5];
+      ss >> pose.R_wr_cl[6];
+      ss >> pose.R_wr_cl[7];
+      ss >> pose.R_wr_cl[8];
+
+      ss >> pose.t_wr_ub[0];
+      ss >> pose.t_wr_ub[1];
+      ss >> pose.t_wr_ub[2];
+
+      ss >> pose.R_wr_ub[0];
+      ss >> pose.R_wr_ub[1];
+      ss >> pose.R_wr_ub[2];
+      ss >> pose.R_wr_ub[3];
+      ss >> pose.R_wr_ub[4];
+      ss >> pose.R_wr_ub[5];
+      ss >> pose.R_wr_ub[6];
+      ss >> pose.R_wr_ub[7];
+      ss >> pose.R_wr_ub[8];
+
+      ss >> pose.t_stance_odo[0];
+      ss >> pose.t_stance_odo[1];
+      ss >> pose.t_stance_odo[2];
+
+      ss >> pose.phi_z_odo;
+      ss >> pose.stance;
+      ss >> pose.stamp;
+
+      result.push_back(std::make_pair(timestamp, pose));
+    }
+
+    return result;
 }
 
 /*

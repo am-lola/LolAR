@@ -1,12 +1,10 @@
-# am2b-ar
+# LolAR
 
 Augmented-Reality Visualization for Lola
 
-Please clone this project with `--recursive` in order to pull in all submodules.
-
 # Dependencies
 
-* [ARVisualizer](https://gitlab.lrz.de/AMCode/ARVisualizer)
+* [ARVisualizer](https://github.com/am-lola/ARVisualizer)
 * [OpenCV 3+](http://opencv.org/) and the [contrib module](https://github.com/Itseez/opencv_contrib)
   * Instructions: http://docs.opencv.org/3.1.0/d7/d9f/tutorial_linux_install.html
   * Be sure to install `libgtk2.0-dev` and `pkg-config` before building OpenCV
